@@ -17,13 +17,13 @@ Below is the Arechitecture of the NexaMed ecosystem:
 - **Backend:** Python, FastAPI
 - **AI/ML:** Groq Cloud (Llama-3), NLP Entity Extraction
 - **Database:** Firebase Realtime Database
-- **Frontend:** React, Vite, Tailwind CSS
+- **Frontend:** React, Vite, Tailwind CSS, HTML CSS Web Page
 - **Maps:** Leaflet.js, Mapbox API
 
 ## 📋 Prerequisites
 - Python 3.9+
 - Node.js (for frontend)
-- API Keys for Groq and Mapbox
+- API Keys for Groq and Mapbox,Goole Maps
 
 ## ⚙️ Installation & Setup
 1. **Clone the repository:**
@@ -37,6 +37,12 @@ Create a .env file based on the .env.example provided and add your API keys.
 pip install -r requirements.txt
 cd frontend && npm install
 4. **Run the Application:**
+# Backend
+uvicorn main:app --reload
+# Frontend
+cd frontend
+npm run dev
+
 # Backend
 uvicorn main:app --reload
 # Frontend
