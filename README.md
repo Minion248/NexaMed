@@ -45,7 +45,8 @@ cd frontend
 npm run dev
 
 
-**Team**
+**Team:**
+
 Sara Akmal 
 
 Hafsa Rehman
