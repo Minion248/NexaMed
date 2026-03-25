@@ -32,25 +32,25 @@ Below is the Arechitecture of the NexaMed ecosystem:
    cd NexaMed
 2. **Setup Environment Variables:**
 
-Create a .env file based on the .env.example provided and add your API keys.
+      Create a .env file based on the .env.example provided and add your API keys.
 
 3. **Install Dependencies:**
 
-pip install -r requirements.txt
+    pip install -r requirements.txt
 
-cd frontend && npm install
+    cd frontend && npm install
 
 4. **Run the Application:**
 
 **Backend**
 
-uvicorn main:app --reload
+    uvicorn main:app --reload
 
 **Frontend**
 
-cd frontend
+    cd frontend
 
-npm run dev
+    npm run dev
 
 
 # Team:
