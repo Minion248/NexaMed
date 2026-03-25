@@ -37,18 +37,18 @@ Create a .env file based on the .env.example provided and add your API keys.
 pip install -r requirements.txt
 cd frontend && npm install
 4. **Run the Application:**
-# Backend
+**Backend**
 uvicorn main:app --reload
-# Frontend
+**Frontend**
 cd frontend
 
 npm run dev
 
 
-**Team:**
+# Team:
 
-Sara Akmal 
+**Sara Akmal**
 
-Hafsa Rehman
+**Hafsa Rehman**
 
-Rayyan Ahsan
+**Rayyan Ahsan**
