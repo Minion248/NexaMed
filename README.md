@@ -34,7 +34,7 @@ Below is the operational logic and data flow of the NexaMed ecosystem:
 Create a .env file based on the .env.example provided and add your API keys.
 
 3. **Install Dependencies:**
-pip install -r requirements.txt   (un-comment those from the file)
+pip install -r requirements.txt    
 cd frontend && npm install
 4. **Run the Application:**
 # Backend
