@@ -1,0 +1,20 @@
+# Secrets
+.env
+*.env.local
+
+# Internal Tools & Metadata
+.stitch/
+.vscode/
+
+# Node/React
+node_modules/
+dist/
+dist-ssr/
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Logs
+*.log
