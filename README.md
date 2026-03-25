@@ -41,7 +41,9 @@ cd frontend && npm install
 uvicorn main:app --reload
 # Frontend
 cd frontend
+
 npm run dev
+
 
 **Team**
 Sara Akmal 
