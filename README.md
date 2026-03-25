@@ -43,12 +43,6 @@ uvicorn main:app --reload
 cd frontend
 npm run dev
 
-# Backend
-uvicorn main:app --reload
-# Frontend
-npm run dev
-
-
 **Team**
 Sara Akmal 
 
