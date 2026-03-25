@@ -9,7 +9,7 @@ NexaMed is an intelligent healthcare solution designed to optimize the "Golden H
 - **Automated Handover:** Generates standardized SOAP notes and PDF reports for ER readiness.
 
 ## 🏗️ System Architecture
-Below is the operational logic and data flow of the NexaMed ecosystem:
+Below is the Arechitecture of the NexaMed ecosystem:
 
 ![NexaMed Architecture](./Architecture.png)
 
@@ -34,7 +34,7 @@ Below is the operational logic and data flow of the NexaMed ecosystem:
 Create a .env file based on the .env.example provided and add your API keys.
 
 3. **Install Dependencies:**
-pip install -r requirements.txt    
+pip install -r requirements.txt
 cd frontend && npm install
 4. **Run the Application:**
 # Backend
