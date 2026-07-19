@@ -18,3 +18,15 @@ __pycache__/
 
 # Logs
 *.log
+# Ignore local database binaries
+*.db
+NexaMed (2).db
+
+# Ignore local testing scratchpads
+_*.py
+
+# Ignore local server stdout/stderr logs
+uvicorn_*.txt
+
+# Ignore tool cache directories
+.claude/
