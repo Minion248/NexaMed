@@ -1,11 +1,37 @@
+# NexaMed EMT Backend — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Core framework
 fastapi
 uvicorn
 python-dotenv
-groq
 pydantic
 python-multipart
-requests
-google-cloud-firestore
-firebase-admin
-jinja2
-aiofiles
+httpx
+
+# Voice Q&A — gTTS drives backend TTS. STT uses Groq's hosted whisper-large-v3
+# translation endpoint via the official groq SDK (a second, dedicated Groq
+# key — GROQ_API_KEY_STT in .env — keeps voice quota/billing separate from
+# the triage/vision Groq calls elsewhere in main.py).
+gTTS
+groq
+
+# Local CNIC scanning (offline, no API key needed)
+# EasyOCR handles English + Urdu mixed-script OCR (preferred)
+easyocr
+opencv-python-headless   # or: opencv-python (if you need GUI)
+
+# Pytesseract is a lighter alternative to EasyOCR (English-only, faster)
+# Requires Tesseract binary: https://github.com/UB-Mannheim/tesseract/wiki
+# pytesseract
+
+# Optional / legacy
+# requests
+# google-cloud-firestore
+# firebase-admin
+# jinja2
+# aiofiles
+
+# Voice Q&A Engine (STT via Groq Whisper-Large-V3 / TTS via gTTS)
+gTTS
+groq

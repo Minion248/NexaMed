@@ -1,687 +1,727 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>NexaMed — Advanced Emergency Portal</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-
-<style>
-/* ── THEME TOKENS ── */
-:root {
-  --bg-deep: #020617; 
-  --bg-surface: #0f172a; 
-  --bg-elevated: #1e293b; 
-  
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  
-  --accent-red: #e11d48;
-  --accent-red-glow: rgba(225, 29, 72, 0.4);
-  --accent-blue: #3b82f6; 
-  --accent-blue-glow: rgba(59, 130, 246, 0.3);
-  --accent-cyan: #06b6d4;
-  
-  --border: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.15);
-  
-  --font-display: 'Outfit', sans-serif;
-  --font-body: 'Inter', sans-serif;
-  --container-max: 1200px;
-}
-
-/* ── RESET & BASE ── */
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { 
-  background-color: var(--bg-deep); color: var(--text-primary); font-family: var(--font-body); 
-  overflow-x: hidden; scroll-behavior: smooth; -webkit-font-smoothing: antialiased;
-}
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: var(--bg-deep); }
-::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 4px; border: 2px solid var(--bg-deep); }
-a { text-decoration: none; color: inherit; outline: none; }
-
-/* ── AMBIENT BACKGROUND GLOWS ── */
-.glow-orb { position: fixed; border-radius: 50%; filter: blur(100px); opacity: 0.35; z-index: -1; pointer-events: none; animation: floatOrb 12s infinite alternate ease-in-out; }
-.glow-orb.red { width: 45vw; height: 45vw; background: radial-gradient(circle, rgba(225,29,72,0.15) 0%, transparent 70%); top: -15vw; left: -10vw; }
-.glow-orb.blue { width: 40vw; height: 40vw; background: radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%); bottom: -10vw; right: -10vw; animation-delay: -6s; }
-@keyframes floatOrb { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(80px, 60px) scale(1.1); } }
-
-/* ── SCROLL ANIMATIONS (AESTHETIC) ── */
-.reveal { opacity: 0; transform: translateY(40px); transition: all 1s cubic-bezier(0.16, 1, 0.3, 1); }
-.reveal.visible { opacity: 1; transform: translateY(0); }
-.reveal-left { opacity: 0; transform: translateX(-50px); transition: all 1s cubic-bezier(0.16, 1, 0.3, 1); }
-.reveal-left.visible { opacity: 1; transform: translateX(0); }
-.reveal-right { opacity: 0; transform: translateX(50px); transition: all 1s cubic-bezier(0.16, 1, 0.3, 1); }
-.reveal-right.visible { opacity: 1; transform: translateX(0); }
-.reveal-scale { opacity: 0; transform: scale(0.9); transition: all 1s cubic-bezier(0.16, 1, 0.3, 1); }
-.reveal-scale.visible { opacity: 1; transform: scale(1); }
-.delay-1 { transition-delay: 100ms; } .delay-2 { transition-delay: 200ms; } .delay-3 { transition-delay: 300ms; } .delay-4 { transition-delay: 400ms; }
-
-/* ── PAGE VIEW ANIMATIONS (ADVANCED) ── */
-.view { display: none; min-height: 100vh; padding: 140px 5% 100px; transform-origin: top center; }
-.view.active { display: block; animation: enterView 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-@keyframes enterView { 
-  0% { opacity: 0; transform: translateY(40px) scale(0.97); filter: blur(5px); } 
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } 
-}
-@keyframes exitView { 
-  0% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } 
-  100% { opacity: 0; transform: translateY(-40px) scale(0.97); filter: blur(5px); } 
-}
-
-/* ── BUTTON CLICK RIPPLES ── */
-.btn { position: relative; overflow: hidden; }
-.btn::after {
-  content: ""; position: absolute; background: rgba(255, 255, 255, 0.3);
-  border-radius: 50%; transform: scale(0); animation: none;
-}
-.btn.click-ripple::after { animation: rippleEffect 0.6s linear; }
-@keyframes rippleEffect { 
-  100% { transform: scale(4); opacity: 0; } 
-}
-
-/* ── RELOAD ANIMATION (HEARTBEAT) ── */
-#loader {
-  position: fixed; inset: 0; background: var(--bg-deep); z-index: 999999;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.8s;
-}
-.ecg-container { width: 160px; height: 60px; position: relative; overflow: hidden; margin-bottom: 24px; filter: drop-shadow(0 0 12px rgba(225,29,72,0.9)); }
-.ecg-line {
-  position: absolute; left: 0; width: 200%; height: 100%;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 50' preserveAspectRatio='none'%3E%3Cpath stroke='%23e11d48' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round' d='M0,25 L30,25 L35,10 L45,45 L50,25 L150,25'/%3E%3C/svg%3E") repeat-x;
-  background-size: 150px 100%; animation: ecg-slide 1.2s linear infinite;
-}
-@keyframes ecg-slide { 0% { transform: translateX(0); } 100% { transform: translateX(-150px); } }
-.loader-text { font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: 6px; color: var(--text-secondary); text-transform: uppercase; animation: pulse-op 1.5s ease-in-out infinite; }
-@keyframes pulse-op { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; filter: drop-shadow(0 0 8px rgba(255,255,255,0.4)); } }
-
-/* ── HEADER & BRANDING ── */
-.header {
-  position: fixed; top: 0; left: 0; right: 0; height: 80px; display: flex; align-items: center; justify-content: space-between;
-  padding: 0 5%; z-index: 1000; background: rgba(2, 6, 23, 0.6); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid transparent; transition: all 0.4s ease;
-}
-.header.scrolled { background: rgba(2, 6, 23, 0.9); box-shadow: 0 10px 40px -10px rgba(0,0,0,0.8); border-bottom-color: rgba(255,255,255,0.05); height: 75px; }
-.brand { display: flex; align-items: center; gap: 14px; cursor: pointer; transition: transform 0.2s; }
-.brand:hover { transform: scale(1.02); }
-.brand-icon {
-  position: relative; width: 34px; height: 34px; background: var(--accent-red); border-radius: 8px;
-  display: flex; align-items: center; justify-content: center; box-shadow: 0 0 20px var(--accent-red-glow); animation: heart-beat 2.5s infinite;
-}
-.brand-icon::after { content: "＋"; color: white; font-weight: 900; font-size: 20px; font-family: var(--font-body); }
-@keyframes heart-beat {
-  0%, 20%, 100% { transform: scale(1); box-shadow: 0 0 12px var(--accent-red-glow); }
-  10%, 30% { transform: scale(1.15); box-shadow: 0 0 30px var(--accent-red-glow); }
-}
-.brand-name {
-  font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #ffffff 20%, #94a3b8 100%); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-
-/* ── NAVIGATION ── */
-.nav-container { display: flex; align-items: center; gap: 6px; }
-.nav-btn {
-  background: transparent; border: none; color: var(--text-secondary); font-family: var(--font-display); font-weight: 500; font-size: 15px;
-  padding: 10px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); position: relative; z-index: 1; 
-}
-.nav-btn::before { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.05); border-radius: 8px; transform: scale(0.8); opacity: 0; transition: all 0.3s; z-index: -1; }
-.nav-btn:hover::before { transform: scale(1); opacity: 1; }
-.nav-btn:hover { color: var(--text-primary); }
-.nav-btn.active { color: var(--text-primary); }
-.nav-btn.active::before { transform: scale(1); opacity: 1; background: var(--bg-surface); border: 1px solid var(--border); }
-
-/* Admin Secure Login Button */
-.nav-admin { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); margin-left: 16px; position: relative; overflow: hidden; }
-.nav-admin::after { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); transform: skewX(-20deg); transition: 0.5s; }
-.nav-admin:hover::after { left: 150%; }
-.nav-admin:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.5); color: white; box-shadow: 0 0 20px var(--accent-blue-glow); }
-
-/* ── BUTTONS ── */
-.btn {
-  display: inline-flex; justify-content: center; align-items: center; gap: 8px;
-  padding: 16px 36px; border-radius: 12px; font-family: var(--font-display); font-weight: 600; font-size: 16px;
-  cursor: pointer; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); border: none; text-decoration: none; position: relative; overflow: hidden; z-index: 1;
-}
-.btn-primary { 
-  background: linear-gradient(135deg, var(--accent-red) 0%, #f43f5e 100%); color: white; 
-  box-shadow: 0 8px 24px rgba(225, 29, 72, 0.3), inset 0 1px 1px rgba(255,255,255,0.3); 
-}
-.btn-primary:active { transform: scale(0.96); }
-.btn-primary:hover { transform: translateY(-4px); box-shadow: 0 16px 32px rgba(225, 29, 72, 0.5), inset 0 1px 1px rgba(255,255,255,0.4); }
-.btn-outline { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.15); color: var(--text-primary); backdrop-filter: blur(10px); }
-.btn-outline:active { transform: scale(0.96); }
-.btn-outline:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); transform: translateY(-4px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
-
-/* ── HERO VIEW ── */
-.container { max-width: var(--container-max); margin: 0 auto; position: relative; z-index: 1; }
-.hero { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 200px); text-align: center; }
-.hero-title { font-family: var(--font-display); font-weight: 800; font-size: clamp(48px, 7vw, 92px); line-height: 1.05; letter-spacing: -2px; margin-bottom: 28px; }
-.hero-title span { background: linear-gradient(to right, #f8fafc, #94a3b8); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.hero-title .highlight-red { background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 20px rgba(225,29,72,0.3)); }
-.hero-desc { font-size: 20px; line-height: 1.7; color: var(--text-secondary); max-width: 700px; margin: 0 auto 48px; font-weight: 400; font-family: var(--font-display); }
-.hero-actions { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; }
-.status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-top: 100px; width: 100%; max-width: 900px; padding-top: 48px; position: relative; }
-.status-grid::before { content:''; position:absolute; top:0; left:10%; right:10%; height:1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
-.stat-box { display: flex; flex-direction: column; align-items: center; gap: 12px; position: relative; }
-.stat-box::after { content:''; position:absolute; right:-20px; top:20%; bottom:20%; width:1px; background: linear-gradient(180deg, transparent, var(--border), transparent); }
-.stat-box:last-child::after { display: none; }
-.stat-box .num { font-family: var(--font-display); font-size: 56px; font-weight: 700; color: var(--text-primary); line-height: 1; letter-spacing: -2px; }
-.stat-box .num span { color: var(--accent-red); font-size: 28px; vertical-align: super; }
-.stat-box .label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: var(--text-muted); font-family: var(--font-display); }
-
-/* ── SECTION COMMONS ── */
-.section-header { text-align: left; margin-bottom: 70px; max-width: 650px; position: relative; }
-.section-header.center { text-align: center; margin-left: auto; margin-right: auto; }
-.section-header h2 { font-family: var(--font-display); font-size: 52px; font-weight: 700; margin-bottom: 20px; letter-spacing: -1.5px; line-height: 1.1; }
-.section-header h2 span { color: var(--accent-red); }
-.section-header p { color: var(--text-secondary); font-size: 18px; line-height: 1.7; font-weight: 400; }
-
-/* ── FEATURES GRID ── */
-.features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 32px; }
-.f-card {
-  background: var(--bg-surface); padding: 40px; border-radius: 24px; border: 1px solid var(--border);
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; gap: 20px; position: relative; overflow: hidden; cursor: pointer;
-}
-.f-card::before { 
-  content: ''; position: absolute; inset: 0; padding: 2px; border-radius: 24px; 
-  background: linear-gradient(135deg, rgba(255,255,255,0.05), transparent 50%, transparent);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; opacity: 0.5; transition: 0.5s;
-}
-.f-card:hover::before { background: linear-gradient(135deg, var(--accent-red), transparent 50%, var(--accent-blue)); opacity: 1; }
-.f-card:hover { transform: translateY(-10px); background: #131d36; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
-.f-icon-wrap { display: flex; align-items: center; justify-content: space-between; }
-.f-icon {
-  width: 64px; height: 64px; background: rgba(59, 130, 246, 0.1); border-radius: 16px;
-  display: flex; align-items: center; justify-content: center; font-size: 28px; color: #60a5fa; transition: all 0.5s;
-  box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1);
-}
-.f-card:hover .f-icon { transform: scale(1.1) rotate(5deg); background: rgba(59, 130, 246, 0.15); box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.2); }
-.f-card:nth-child(even) .f-icon { background: rgba(225, 29, 72, 0.1); color: #fb7185; border-color: rgba(225, 29, 72, 0.1); }
-.f-card:nth-child(even):hover .f-icon { background: rgba(225, 29, 72, 0.15); box-shadow: inset 0 0 20px rgba(225, 29, 72, 0.2); }
-.f-idx { font-family: var(--font-display); font-size: 40px; font-weight: 800; color: rgba(255,255,255,0.04); transition: 0.5s; }
-.f-card:hover .f-idx { color: rgba(255,255,255,0.1); transform: translateY(-10px); }
-.f-title { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--text-primary); margin-bottom: -4px; transition: color 0.3s; }
-.f-card:hover .f-title { color: #f8fafc; }
-.f-desc { font-size: 16px; line-height: 1.7; color: var(--text-secondary); }
-
-/* ── WORKFLOW PIPELINE ── */
-.workflow-container { 
-  background: radial-gradient(ellipse at top, rgba(15, 23, 42, 0.8) 0%, transparent 70%); 
-  padding: 100px 0 40px; margin-top: 80px; position: relative; 
-}
-.workflow-container::before { content:''; position:absolute; top:0; left:10%; right:10%; height:1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
-.timeline { display: flex; justify-content: space-between; position: relative; max-width: 1000px; margin: 0 auto; }
-.timeline-track { position: absolute; top: 32px; left: 5%; right: 5%; height: 2px; background: var(--border); z-index: 0; }
-.timeline-progress { 
-  position: absolute; top: 31px; left: 5%; width: 0%; height: 4px; border-radius: 4px;
-  background: linear-gradient(90deg, transparent, var(--accent-red)); 
-  box-shadow: 0 0 20px var(--accent-red); transition: width 2s cubic-bezier(0.16, 1, 0.3, 1); 
-}
-.timeline.visible .timeline-progress { width: 90%; }
-.step { position: relative; z-index: 1; flex: 1; text-align: center; }
-.step-dot {
-  width: 64px; height: 64px; border-radius: 50%; background: var(--bg-deep); border: 2px solid var(--border); margin: 0 auto 30px;
-  display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 800; font-size: 22px; color: var(--text-muted);
-  box-shadow: 0 0 0 8px var(--bg-deep); transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1); position: relative; cursor: pointer;
-}
-.step-dot::after { content:''; position:absolute; inset:-6px; border-radius:50%; border: 2px dashed rgba(225,29,72,0); transition: 0.6s; animation: spin 10s linear infinite; }
-.step:hover .step-dot::after { border-color: rgba(225,29,72,0.4); }
-@keyframes spin { 100% { transform: rotate(360deg); } }
-.step:hover .step-dot { background: var(--accent-red); border-color: var(--accent-red); box-shadow: 0 0 0 8px rgba(225,29,72,0.2), 0 0 40px rgba(225,29,72,0.6); transform: scale(1.1); color: white; }
-.step-title { font-family: var(--font-display); font-weight: 700; font-size: 20px; margin-bottom: 12px; color: var(--text-primary); }
-.step-desc { font-size: 16px; color: var(--text-secondary); line-height: 1.6; padding: 0 16px; margin: 0 auto; max-width: 280px; }
-
-/* ── ABOUT US / ARCHITECTURE ── */
-.about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; }
-.about-content h2 { font-family: var(--font-display); font-size: 46px; font-weight: 800; margin-bottom: 24px; letter-spacing: -1.5px; line-height: 1.1; }
-.about-content h2 span { background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-cyan) 100%); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.about-content p { font-size: 18px; line-height: 1.8; color: var(--text-secondary); margin-bottom: 24px; }
-.about-visual { 
-  position: relative; height: 500px; border-radius: 32px; overflow: hidden; 
-  box-shadow: 0 30px 60px rgba(0,0,0,0.5), 0 0 40px rgba(59,130,246,0.1); border: 1px solid rgba(255,255,255,0.1); 
-  transform-origin: center right; transition: transform 0.8s ease;
-}
-.about-visual:hover { transform: scale(1.02) perspective(1000px) rotateY(-5deg); border-color: rgba(59,130,246,0.3); }
-
-/* Professional Abstract Network/Medical Image */
-.about-visual-bg {
-  position: absolute; inset: 0;
-  background-image: url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1200&auto=format&fit=crop');
-  background-size: cover; background-position: center; transition: transform 5s linear;
-}
-.about-visual:hover .about-visual-bg { transform: scale(1.1); }
-.about-visual-overlay { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(2,6,23,0.8), rgba(15,23,42,0.4)); }
-
-/* Scanning Line Animation */
-.scanner-line { position: absolute; top: 0; left: 0; right: 0; height: 4px; background: rgba(59,130,246,0.8); box-shadow: 0 0 20px var(--accent-blue); animation: scanLine 3s infinite ease-in-out; opacity: 0; }
-@keyframes scanLine { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
-
-.v-inner { position: relative; z-index: 2; height: 100%; display: flex; align-items: center; justify-content: center; }
-.radar-blip { width: 140px; height: 140px; background: rgba(59,130,246,0.15); border-radius: 50%; box-shadow: 0 0 0 0 rgba(59,130,246,0.6); animation: radarPulse 2s infinite; display:flex; align-items:center; justify-content:center; }
-.radar-core { width: 32px; height: 32px; background: var(--accent-blue); border-radius: 50%; box-shadow: 0 0 40px var(--accent-blue); }
-@keyframes radarPulse { 0% { box-shadow: 0 0 0 0 rgba(59,130,246,0.8); } 70% { box-shadow: 0 0 0 120px rgba(59,130,246,0); } 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); } }
-
-.floating-badge { position: absolute; background: rgba(15,23,42,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.15); padding: 14px 24px; border-radius: 100px; font-family: var(--font-display); font-weight: 600; font-size: 15px; color: white; display:flex; align-items:center; gap:10px; z-index: 3; box-shadow: 0 15px 30px rgba(0,0,0,0.4); }
-.fb-2 { top: 10%; right: -20px; animation: floatUp 5s infinite alternate ease-in-out; }
-.fb-3 { bottom: 20px; left: -20px; animation: floatUp 4.5s infinite alternate-reverse ease-in-out; }
-.dot-green { width: 10px; height: 10px; background: var(--success); border-radius: 50%; box-shadow: 0 0 12px var(--success); }
-.dot-blue { width: 10px; height: 10px; background: var(--accent-blue); border-radius: 50%; box-shadow: 0 0 12px var(--accent-blue); }
-@keyframes floatUp { 0% { transform: translateY(0); } 100% { transform: translateY(-15px); } }
-
-/* ── CONTACT US (CLEAR & MEANINGFUL) ── */
-.contact-layout { display: grid; grid-template-columns: 1fr 1.5fr; gap: 60px; align-items: start; }
-.contact-info-block { display: flex; flex-direction: column; gap: 32px; padding-top: 20px; }
-.ci-item { display: flex; gap: 20px; align-items: flex-start; }
-.ci-icon { width: 48px; height: 48px; background: rgba(59,130,246,0.1); color: var(--accent-blue); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; border: 1px solid rgba(59,130,246,0.2); }
-.ci-content h4 { font-family: var(--font-display); font-size: 18px; color: var(--text-primary); margin-bottom: 4px; }
-.ci-content p { color: var(--text-secondary); font-size: 15px; line-height: 1.5; }
-
-.contact-wrap { margin: 0 auto; background: var(--bg-surface); padding: 50px; border-radius: 32px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 30px 60px rgba(0,0,0,0.6); position: relative; overflow: hidden; width: 100%; }
-.contact-wrap::before { content:''; position:absolute; top:0; left:0; right:0; height:6px; background: linear-gradient(90deg, var(--accent-red), var(--accent-blue)); }
-.c-group { margin-bottom: 28px; }
-.c-group label { display: block; font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; letter-spacing: 0.5px; }
-.c-group input, .c-group textarea {
-  width: 100%; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 16px;
-  padding: 16px 20px; color: var(--text-primary); font-family: var(--font-body); font-size: 16px;
-  outline: none; transition: all 0.3s ease; resize: vertical; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
-}
-.c-group input:focus, .c-group textarea:focus { border-color: var(--accent-blue); box-shadow: inset 0 2px 4px rgba(0,0,0,0.2), 0 0 0 4px var(--accent-blue-glow); background: rgba(2, 6, 23, 0.9); }
-
-/* Responsive adjustments */
-@media(max-width: 900px) {
-  .about-grid { grid-template-columns: 1fr; }
-  .about-visual { height: 400px; margin-top: 40px; }
-  .status-grid { grid-template-columns: 1fr; gap: 40px; }
-  .status-grid::before { display: none; }
-  .stat-box::after { display: none; }
-  .timeline { flex-direction: column; gap: 40px; padding-left: 10px; }
-  .timeline-track { left: 42px; top: 0; bottom: 0; width: 2px; height: auto; }
-  .timeline-progress { width: 4px !important; bottom: auto; background: linear-gradient(180deg, var(--accent-red), transparent); transition: height 2s; height: 0%; left: 41px; }
-  .timeline.visible .timeline-progress { height: 100%; width: 4px; }
-  .step { display: flex; text-align: left; align-items: center; gap: 32px; }
-  .step-dot { margin: 0; flex-shrink: 0; }
-  .contact-layout { grid-template-columns: 1fr; gap: 40px; }
-  .contact-wrap { padding: 40px 24px; }
-  .hero-title { font-size: 40px; }
-}
-@media(max-width: 768px) {
-  .header { padding: 0 20px; }
-  .nav-btn { display: none; }
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="NexaMed — Enterprise Agentic AI Emergency Command & Triage System. Llama-3 clinical intelligence, NADRA biometric verification, real-time n8n dispatch.">
+  <title>NexaMed Command — Agentic AI Emergency Triage System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0a0b10;--surface:#0f1119;--surface2:#141622;--border:rgba(255,255,255,0.07);
+      --borderl:rgba(255,255,255,0.13);--red:#dc3545;--redg:rgba(220,53,69,0.3);
+      --cyan:#17a2b8;--cyag:rgba(23,162,184,0.25);--gold:#f59e0b;
+      --text:#eef2f7;--text2:rgba(238,242,247,0.6);--text3:rgba(238,242,247,0.33);
+      --fdis:'Space Grotesk',sans-serif;--fmono:'JetBrains Mono',monospace;
+    }
+    html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+    ::-webkit-scrollbar{width:5px;background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:rgba(220,53,69,0.4);border-radius:3px}
+    body{
+      background:var(--bg);color:var(--text);font-family:var(--fdis);
+      overflow-x:hidden;cursor:none
+    }
+    /* Custom cursor */
+    #cx{position:fixed;width:8px;height:8px;background:var(--red);border-radius:50%;
+      pointer-events:none;z-index:9999;transform:translate(-50%,-50%);transition:transform .08s;
+      mix-blend-mode:screen}
+    #cr{position:fixed;width:38px;height:38px;border:1.5px solid rgba(23,162,184,0.5);
+      border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);
+      transition:all .14s ease;mix-blend-mode:screen}
+    #cr.h{width:56px;height:56px;border-color:rgba(220,53,69,0.55);background:rgba(220,53,69,0.07)}
+    /* Grid bg */
+    body::before{content:'';position:fixed;inset:0;
+      background-image:linear-gradient(rgba(23,162,184,0.035) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(23,162,184,0.035) 1px,transparent 1px);
+      background-size:48px 48px;pointer-events:none;z-index:0}
+    /* Ambient glows */
+    .agl{position:fixed;border-radius:50%;filter:blur(130px);pointer-events:none;z-index:0;opacity:.1}
+    .agl1{width:700px;height:700px;background:var(--red);top:-220px;left:-160px}
+    .agl2{width:600px;height:600px;background:var(--cyan);bottom:10%;right:-180px}
+    /* NAV */
+    nav{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;
+      align-items:center;justify-content:space-between;padding:16px 44px;
+      background:rgba(10,11,16,0.72);backdrop-filter:blur(24px);
+      border-bottom:1px solid var(--border);transition:background .3s}
+    nav.scrolled{background:rgba(10,11,16,0.92)}
+    .nlogo{display:flex;align-items:center;gap:10px;font-family:var(--fmono);
+      font-size:15px;font-weight:700;letter-spacing:-.5px;text-decoration:none;color:var(--text)}
+    .nlogo-ic{width:30px;height:30px;background:linear-gradient(135deg,#dc3545,#b91c1c);
+      border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;
+      box-shadow:0 0 18px rgba(220,53,69,0.5)}
+    .nlogo span{color:var(--red)}
+    .nbadge{font-family:var(--fmono);font-size:9px;background:rgba(220,53,69,.13);
+      color:var(--red);border:1px solid rgba(220,53,69,.3);padding:3px 8px;
+      border-radius:4px;letter-spacing:1.5px}
+    .nlinks{display:flex;align-items:center;gap:30px;list-style:none}
+    .nlinks a{text-decoration:none;color:var(--text2);font-size:13px;font-weight:500;
+      letter-spacing:.3px;transition:color .2s}
+    .nlinks a:hover{color:var(--text)}
+    .btn-enter{background:var(--red);color:#fff;border:none;border-radius:10px;
+      padding:10px 22px;font-family:var(--fmono);font-size:12px;font-weight:700;
+      letter-spacing:1.5px;cursor:pointer;transition:all .2s;
+      box-shadow:0 4px 16px rgba(220,53,69,.35);text-decoration:none;display:inline-block}
+    .btn-enter:hover{background:#b91c1c;transform:translateY(-1px);box-shadow:0 8px 24px rgba(220,53,69,.5)}
+    /* MAIN */
+    main{position:relative;z-index:1}
+    section{padding:96px 44px;max-width:1280px;margin:0 auto}
+    /* HERO */
+    .hero{min-height:100vh;display:grid;grid-template-columns:1fr 1fr;
+      align-items:center;gap:56px;padding-top:120px}
+    .hbadge{display:inline-flex;align-items:center;gap:8px;font-family:var(--fmono);
+      font-size:9.5px;letter-spacing:2px;font-weight:700;color:var(--cyan);
+      background:rgba(23,162,184,.1);border:1px solid rgba(23,162,184,.25);
+      padding:6px 14px;border-radius:100px;margin-bottom:26px}
+    .hbadge::before{content:'';width:6px;height:6px;background:var(--cyan);
+      border-radius:50%;box-shadow:0 0 7px var(--cyan);animation:pdot 2s ease-in-out infinite}
+    @keyframes pdot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.65)}}
+    .hh1{font-size:clamp(36px,5vw,68px);font-weight:700;line-height:1.04;
+      letter-spacing:-2.5px;margin-bottom:22px}
+    .hh1 .ar{color:var(--red)}.hh1 .ac{color:var(--cyan)}
+    .twr-wrap{font-family:var(--fmono);font-size:14.5px;color:var(--cyan);
+      background:rgba(23,162,184,.06);border:1px solid rgba(23,162,184,.15);
+      border-left:3px solid var(--cyan);padding:13px 17px;border-radius:0 8px 8px 0;
+      margin-bottom:26px;min-height:48px;display:flex;align-items:center}
+    .twr-cur{display:inline-block;width:2px;height:15px;background:var(--cyan);
+      margin-left:3px;animation:blink 1s step-end infinite;vertical-align:middle}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+    .hdesc{color:var(--text2);font-size:15.5px;line-height:1.72;margin-bottom:38px;max-width:480px}
+    .hacts{display:flex;gap:12px;flex-wrap:wrap}
+    .btn-sos{position:relative;background:linear-gradient(135deg,#dc3545,#b91c1c);color:#fff;
+      border:none;border-radius:12px;padding:15px 26px;font-family:var(--fmono);
+      font-size:12.5px;font-weight:700;letter-spacing:.8px;cursor:pointer;overflow:hidden;
+      transition:all .3s;box-shadow:0 8px 30px rgba(220,53,69,.4);
+      text-decoration:none;display:inline-flex;align-items:center;gap:7px}
+    .btn-sos:hover{transform:translateY(-2px);box-shadow:0 16px 48px rgba(220,53,69,.55)}
+    .btn-sos::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.1);
+      opacity:0;transition:opacity .2s}
+    .btn-sos:hover::after{opacity:1}
+    .sos-ring{position:absolute;inset:-3px;border:2px solid rgba(220,53,69,.4);
+      border-radius:15px;animation:sring 2s ease-out infinite}
+    @keyframes sring{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.14);opacity:0}}
+    .btn-sec{background:transparent;color:var(--text);border:1px solid var(--borderl);
+      border-radius:12px;padding:15px 26px;font-family:var(--fmono);font-size:12.5px;
+      font-weight:600;letter-spacing:.3px;cursor:pointer;transition:all .2s;
+      backdrop-filter:blur(10px);text-decoration:none;display:inline-flex;align-items:center;gap:7px}
+    .btn-sec:hover{border-color:rgba(255,255,255,.28);background:rgba(255,255,255,.05);transform:translateY(-1px)}
+    /* Canvas */
+    .hcwrap{position:relative;display:flex;align-items:center;justify-content:center}
+    #ocan{width:100%;max-width:460px;height:460px;display:block}
+    .olabel{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+      font-family:var(--fmono);font-size:8.5px;color:var(--text3);letter-spacing:2px;white-space:nowrap}
+    /* STATS BAR */
+    .statsbar{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+      background:var(--border);border:1px solid var(--border);border-radius:16px;
+      overflow:hidden;max-width:1200px;margin:0 auto 72px}
+    .si{background:var(--surface);padding:26px;text-align:center;transition:background .2s}
+    .si:hover{background:var(--surface2)}
+    .sv{font-family:var(--fmono);font-size:34px;font-weight:700;line-height:1;margin-bottom:5px}
+    .su{font-size:17px;color:var(--text3)}
+    .sl{font-size:10.5px;color:var(--text3);letter-spacing:1.5px;font-weight:500}
+    /* SECTION LABELS */
+    .slabel{font-family:var(--fmono);font-size:9.5px;letter-spacing:3px;color:var(--text3);font-weight:600;margin-bottom:12px}
+    .stitle{font-size:clamp(26px,3.5vw,46px);font-weight:700;letter-spacing:-1.5px;line-height:1.1;margin-bottom:14px}
+    .sdesc{color:var(--text2);font-size:15.5px;line-height:1.7;max-width:560px;margin-bottom:60px}
+    /* TIMELINE */
+    .tline{position:relative;display:flex;flex-direction:column}
+    .tline::before{content:'';position:absolute;left:38px;top:0;bottom:0;width:1px;
+      background:linear-gradient(to bottom,transparent,var(--borderl) 10%,var(--borderl) 90%,transparent)}
+    .phase{display:grid;grid-template-columns:78px 1fr;gap:28px;padding:28px 0;
+      opacity:0;transform:translateX(-18px);transition:all .6s cubic-bezier(.22,1,.36,1)}
+    .phase.vis{opacity:1;transform:translateX(0)}
+    .pnode{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px}
+    .pdot{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;font-size:14px;border:2px solid;flex-shrink:0;position:relative;z-index:1}
+    .pdot.r{background:rgba(220,53,69,.12);border-color:var(--red);color:var(--red);box-shadow:0 0 18px rgba(220,53,69,.22)}
+    .pdot.c{background:rgba(23,162,184,.12);border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 18px rgba(23,162,184,.22)}
+    .pnum{font-family:var(--fmono);font-size:8.5px;color:var(--text3);letter-spacing:1px}
+    .pcard{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+      padding:26px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s}
+    .pcard:hover{border-color:var(--borderl);transform:translateX(4px)}
+    .pcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+    .pcard.r::before{background:var(--red)}.pcard.c::before{background:var(--cyan)}
+    .ptag{font-family:var(--fmono);font-size:8.5px;letter-spacing:2px;font-weight:700;margin-bottom:7px}
+    .ptag.r{color:var(--red)}.ptag.c{color:var(--cyan)}
+    .ptitle{font-size:19px;font-weight:700;letter-spacing:-.4px;margin-bottom:9px}
+    .pdesc{color:var(--text2);font-size:13.5px;line-height:1.7;margin-bottom:18px}
+    .pviz{font-family:var(--fmono);font-size:10.5px;color:var(--text3);
+      background:rgba(0,0,0,.28);border-radius:8px;padding:11px 14px;
+      display:flex;flex-direction:column;gap:7px}
+    .pvrow{display:flex;align-items:center;gap:8px}
+    .vbar{flex:1;height:3.5px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+    .vbf{height:100%;border-radius:2px;animation:vfill 2.4s ease-in-out infinite}
+    @keyframes vfill{0%{width:0}55%{width:100%}75%{width:100%}100%{width:0}}
+    .vping{width:7px;height:7px;border-radius:50%;animation:vping 1.5s ease-in-out infinite}
+    @keyframes vping{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.55)}}
+    .ppipe{display:flex;align-items:center;gap:4px;flex:1;margin-left:8px}
+    .ppd{width:5.5px;height:5.5px;border-radius:50%;background:var(--cyan);
+      animation:ppf 1.4s ease-in-out infinite}
+    .ppd:nth-child(2){animation-delay:.2s}.ppd:nth-child(4){animation-delay:.4s}
+    .ppd:nth-child(6){animation-delay:.6s}.ppd:nth-child(8){animation-delay:.8s}
+    .ppl{flex:1;height:1px;background:linear-gradient(to right,transparent,var(--cyan),transparent)}
+    @keyframes ppf{0%,100%{opacity:.2;transform:scale(.65)}50%{opacity:1;transform:scale(1)}}
+    .efly{font-size:18px;animation:fly 2s ease-in-out infinite}
+    @keyframes fly{0%{transform:translateX(0) rotate(0);opacity:1}
+      65%{transform:translateX(42px) rotate(-6deg);opacity:0}
+      66%{transform:translateX(-22px) rotate(-6deg);opacity:0}
+      100%{transform:translateX(0) rotate(0);opacity:1}}
+    /* BROWSER MOCKUP */
+    .msec{text-align:center}
+    .mwrap{perspective:1200px;margin:0 auto;max-width:880px}
+    .bmock{background:var(--surface);border:1px solid var(--borderl);border-radius:15px;
+      overflow:hidden;box-shadow:0 40px 120px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.055);
+      transform:rotateX(22deg) rotateY(-9deg) scale(.9);transform-style:preserve-3d;
+      transition:transform .85s cubic-bezier(.22,1,.36,1),opacity .6s;opacity:0}
+    .bmock.vis{opacity:1}.bmock.flat{transform:rotateX(0) rotateY(0) scale(1)}
+    .bchrome{background:rgba(0,0,0,.48);padding:11px 15px;display:flex;
+      align-items:center;gap:11px;border-bottom:1px solid var(--border)}
+    .cdots{display:flex;gap:5px}
+    .cd{width:11px;height:11px;border-radius:50%}
+    .cdr{background:#ff5f57}.cdy{background:#ffc030}.cdg{background:#28c840}
+    .cbar{flex:1;background:rgba(255,255,255,.06);border-radius:6px;padding:5px 12px;
+      font-family:var(--fmono);font-size:10.5px;color:var(--text3)}
+    .bcont{position:relative;height:420px;
+      background:linear-gradient(135deg,#0d1117 0%,#0f1a2e 50%,#0a1520 100%);
+      overflow:hidden;display:flex;align-items:center;justify-content:center}
+    .mock-db{width:100%;height:100%;display:grid;grid-template-columns:210px 1fr;opacity:.85}
+    .mock-sb{background:rgba(0,0,0,.4);border-right:1px solid var(--border);
+      padding:18px;display:flex;flex-direction:column;gap:7px}
+    .sb-item{background:rgba(255,255,255,.04);border-radius:7px;padding:9px 13px;
+      font-family:var(--fmono);font-size:9.5px;color:var(--text3);display:flex;align-items:center;gap:7px}
+    .sb-item.act{background:rgba(220,53,69,.12);color:var(--red);border:1px solid rgba(220,53,69,.25)}
+    .mock-mn{padding:18px;display:flex;flex-direction:column;gap:11px}
+    .mhdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
+    .mt{font-size:12.5px;font-weight:700;letter-spacing:-.2px}
+    .mb{background:rgba(220,53,69,.15);color:var(--red);border:1px solid rgba(220,53,69,.3);
+      padding:3px 8px;border-radius:4px;font-family:var(--fmono);font-size:8.5px;letter-spacing:1px}
+    .mcards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+    .mc{background:rgba(255,255,255,.04);border:1px solid var(--border);
+      border-radius:9px;padding:13px}
+    .mcv{font-size:18px;font-weight:700;font-family:var(--fmono)}
+    .mcl{font-size:8.5px;color:var(--text3);letter-spacing:1px;margin-top:2px}
+    .mmap{background:rgba(23,162,184,.05);border:1px solid rgba(23,162,184,.12);
+      border-radius:9px;flex:1;display:flex;align-items:center;justify-content:center;
+      position:relative;overflow:hidden}
+    .mgrid{position:absolute;inset:0;
+      background-image:linear-gradient(rgba(23,162,184,.06) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(23,162,184,.06) 1px,transparent 1px);
+      background-size:22px 22px}
+    .mpin{width:9px;height:9px;border-radius:50%;background:var(--red);
+      box-shadow:0 0 9px var(--red);position:absolute;
+      animation:pinp 2s ease-in-out infinite}
+    @keyframes pinp{0%,100%{box-shadow:0 0 0 0 rgba(220,53,69,.6)}50%{box-shadow:0 0 0 8px rgba(220,53,69,0)}}
+    /* Play overlay */
+    .povl{position:absolute;inset:0;background:rgba(10,11,16,.58);display:flex;
+      align-items:center;justify-content:center;cursor:pointer;transition:background .3s;z-index:2}
+    .povl:hover{background:rgba(10,11,16,.38)}
+    .pbtn{width:76px;height:76px;border-radius:50%;background:rgba(220,53,69,.9);
+      display:flex;align-items:center;justify-content:center;font-size:26px;
+      transition:transform .2s,box-shadow .2s;
+      box-shadow:0 0 0 15px rgba(220,53,69,.1),0 0 0 30px rgba(220,53,69,.05)}
+    .povl:hover .pbtn{transform:scale(1.1);box-shadow:0 0 0 20px rgba(220,53,69,.14),0 0 0 40px rgba(220,53,69,.06)}
+    .ptxt{position:absolute;bottom:22px;font-family:var(--fmono);font-size:10.5px;
+      color:var(--text2);letter-spacing:2px}
+    /* METRICS */
+    .mgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+    .mpanel{background:var(--surface);border:1px solid var(--border);border-radius:15px;
+      padding:26px;position:relative;overflow:hidden;transition:border-color .2s,transform .3s;
+      opacity:0;transform:translateY(28px)}
+    .mpanel.vis{opacity:1;transform:translateY(0)}
+    .mpanel:hover{border-color:var(--borderl);transform:translateY(-4px)}
+    .mpanel::after{content:'';position:absolute;top:-1px;left:0;right:0;height:2px}
+    .mpanel.cr::after{background:var(--red)}
+    .mpanel.ur::after{background:var(--gold)}
+    .mpanel.st::after{background:var(--cyan)}
+    .mpanel.cr{background:radial-gradient(ellipse at 50% -20%,rgba(220,53,69,.07) 0%,var(--surface) 58%)}
+    .mpanel.ur{background:radial-gradient(ellipse at 50% -20%,rgba(245,158,11,.07) 0%,var(--surface) 58%)}
+    .mpanel.st{background:radial-gradient(ellipse at 50% -20%,rgba(23,162,184,.07) 0%,var(--surface) 58%)}
+    .mphdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .mstat{font-family:var(--fmono);font-size:8.5px;letter-spacing:2px;font-weight:700;
+      padding:4px 9px;border-radius:100px}
+    .mstat.cr{background:rgba(220,53,69,.14);color:var(--red)}
+    .mstat.ur{background:rgba(245,158,11,.14);color:var(--gold)}
+    .mstat.st{background:rgba(23,162,184,.14);color:var(--cyan)}
+    .micon{font-size:20px}
+    .mval{font-family:var(--fmono);font-size:50px;font-weight:700;line-height:1;
+      margin-bottom:4px;letter-spacing:-2px}
+    .mval.cr{color:var(--red)}.mval.ur{color:var(--gold)}.mval.st{color:var(--cyan)}
+    .mlbl{font-size:10.5px;color:var(--text3);letter-spacing:1px;font-weight:500;margin-bottom:18px}
+    .mwwrap{position:relative;height:56px;overflow:hidden;border-radius:7px}
+    .wcan{width:100%;height:56px;display:block}
+    .sbeam{position:absolute;top:0;bottom:0;width:38px;
+      background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);
+      animation:scan 2.5s linear infinite;pointer-events:none}
+    @keyframes scan{0%{left:-38px}100%{left:100%}}
+    .mtrend{display:flex;align-items:center;gap:5px;margin-top:10px;
+      font-family:var(--fmono);font-size:9.5px;color:var(--text3)}
+    .tup{color:var(--red)}.tdn{color:var(--cyan)}
+    /* CTA */
+    .ctacard{background:var(--surface);border:1px solid var(--border);border-radius:22px;
+      padding:76px 56px;max-width:780px;margin:0 auto;position:relative;overflow:hidden;
+      text-align:center}
+    .ctacard::before{content:'';position:absolute;inset:0;
+      background:radial-gradient(ellipse at 50% 0%,rgba(220,53,69,.08) 0%,transparent 58%)}
+    .ctatitle{font-size:clamp(30px,4vw,50px);font-weight:700;letter-spacing:-2px;margin-bottom:18px}
+    .ctadesc{color:var(--text2);font-size:15.5px;line-height:1.7;margin-bottom:38px}
+    /* FOOTER */
+    footer{border-top:1px solid var(--border);padding:28px 44px;display:flex;
+      align-items:center;justify-content:space-between;font-family:var(--fmono);
+      font-size:10.5px;color:var(--text3);position:relative;z-index:1}
+    /* REVEAL */
+    .rv{opacity:0;transform:translateY(22px);transition:all .68s cubic-bezier(.22,1,.36,1)}
+    .rv.vis{opacity:1;transform:translateY(0)}
+    .rv.d1{transition-delay:.1s}.rv.d2{transition-delay:.2s}.rv.d3{transition-delay:.3s}
+    /* RESPONSIVE */
+    @media(max-width:1024px){
+      .hero{grid-template-columns:1fr}
+      .hcwrap{order:-1}
+      #ocan{max-width:340px;height:340px;margin:0 auto}
+      .statsbar{grid-template-columns:repeat(2,1fr)}
+      .mgrid3{grid-template-columns:1fr}
+    }
+    @media(max-width:768px){
+      nav{padding:13px 18px}
+      .nlinks{display:none}
+      section{padding:56px 18px}
+      .hero{padding-top:96px}
+      .statsbar{grid-template-columns:1fr 1fr}
+      .ctacard{padding:44px 22px}
+    }
+  </style>
 </head>
 <body>
+  <div id="cx"></div>
+  <div id="cr"></div>
+  <div class="agl agl1"></div>
+  <div class="agl agl2"></div>
 
-<div class="glow-orb red"></div>
-<div class="glow-orb blue"></div>
+  <nav id="nav">
+    <a href="/front.html" class="nlogo">
+      <div class="nlogo-ic">&#x1F691;</div>
+      Nexa<span>Med</span>
+      <div class="nbadge">v3.2</div>
+    </a>
+    <ul class="nlinks">
+      <li><a href="#sec-timeline">System Flow</a></li>
+      <li><a href="#sec-demo">Live Demo</a></li>
+      <li><a href="#sec-metrics">Analytics</a></li>
+      <li><a href="/#/login">EMT Portal</a></li>
+    </ul>
+    <a href="/#/login" class="btn-enter">ENTER SYSTEM &#x2192;</a>
+  </nav>
 
-<!-- AESTHETIC LOADER (HEARTBEAT) -->
-<div id="loader">
-  <div class="ecg-container"><div class="ecg-line"></div></div>
-  <div class="loader-text">ESTABLISHING SECURE CONNECTION</div>
-</div>
-
-<!-- HEADER / NAVIGATION -->
-<header class="header" id="navHeader">
-  <div class="brand" onclick="navigate('home')">
-    <div class="brand-icon"></div>
-    <div class="brand-name">NexaMed</div>
-  </div>
-  
-  <div class="nav-container">
-    <button class="nav-btn active" data-target="home" onclick="navigate('home')">Home</button>
-    <button class="nav-btn" data-target="features" onclick="navigate('features')">System Capabilities</button>
-    <button class="nav-btn" data-target="about" onclick="navigate('about')">The Architecture</button>
-    <button class="nav-btn" data-target="contact" onclick="navigate('contact')">Integrate</button>
-    <a href="http://localhost:5173/login" class="nav-btn nav-admin">Admin Secure Login →</a>
-  </div>
-</header>
-
-<!-- HOME VIEW -->
-<section id="view-home" class="view active">
-  <div class="container hero">
-    <h1 class="hero-title reveal">Bridging the Gap Between<br><span class="highlight-red">Emergency and Care.</span></h1>
-    <p class="hero-desc reveal delay-1">Every second counts. NexaMed provides intelligent triage, dynamic fleet routing, and seamless secure communication from the incident scene directly to the hospital bed.</p>
-    
-    <div class="hero-actions reveal delay-2">
-      <button class="btn btn-primary" onclick="navigate('features')">Explore Architecture</button>
-      <button class="btn btn-outline" onclick="navigate('contact')">Reach Out to Us</button>
-    </div>
-
-    <div class="status-grid reveal delay-3">
-      <div class="stat-box">
-        <div class="num" id="s-resp">0<span>m</span> 0<span>s</span></div>
-        <div class="label">AVG AI TRIAGE TIME</div>
-      </div>
-      <div class="stat-box">
-        <div class="num" id="s-hosp">0</div>
-        <div class="label">INTEGRATED ER FACILITIES</div>
-      </div>
-      <div class="stat-box">
-        <div class="num">99.9<span>%</span></div>
-        <div class="label">SYSTEM RELIABILITY SLA</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- FEATURES SECTION -->
-<section id="view-features" class="view">
-  <div class="container">
-    <div class="section-header center reveal">
-      <h2>Engineered for the <span>Frontline</span></h2>
-      <p>NexaMed eliminates latency between the emergency call and the hospital bed. Every feature is structured around providing rapid, precise data to field paramedics without friction.</p>
-    </div>
-    
-    <div class="features-grid">
-      <div class="f-card reveal delay-1" tabindex="0">
-        <div class="f-icon-wrap">
-          <div class="f-icon">⚕️</div>
-          <div class="f-idx">01</div>
+  <main>
+    <!-- HERO -->
+    <section class="hero" style="max-width:1280px">
+      <div class="hleft">
+        <div class="hbadge">NEXAMED // AGENTIC AI EMERGENCY COMMAND SYSTEM</div>
+        <h1 class="hh1">
+          THE FUTURE<br>
+          OF <span class="ar">DISPATCH</span><br>
+          IS <span class="ac">AGENTIC</span>
+        </h1>
+        <div class="twr-wrap">
+          <span id="tw"></span><span class="twr-cur"></span>
         </div>
-        <div class="f-title">Intelligent Triage Analysis</div>
-        <div class="f-desc">Automatically evaluate patient symptoms using medical protocols in real-time. Instantly prioritize critical urgency levels to allocate exact resources.</div>
-      </div>
-      <div class="f-card reveal delay-2" tabindex="0">
-        <div class="f-icon-wrap">
-          <div class="f-icon">🆔</div>
-          <div class="f-idx">02</div>
-        </div>
-        <div class="f-title">Rapid Patient Verification</div>
-        <div class="f-desc">Scan national identification cards on-site instantly. Retrieve crucial patient demographics and potential critical medical history securely.</div>
-      </div>
-      <div class="f-card reveal delay-3" tabindex="0">
-        <div class="f-icon-wrap">
-          <div class="f-icon">📍</div>
-          <div class="f-idx">03</div>
-        </div>
-        <div class="f-title">Live Fleet Navigation</div>
-        <div class="f-desc">Dynamic GPS routing built specifically for emergency vehicles. Bypasses real-time traffic congestion to guide units to the finest equipped local trauma centers.</div>
-      </div>
-      <div class="f-card reveal delay-1" tabindex="0">
-        <div class="f-icon-wrap">
-          <div class="f-icon">🌐</div>
-          <div class="f-idx">04</div>
-        </div>
-        <div class="f-title">Cross-Lingual Support</div>
-        <div class="f-desc">A fully unified native translation module integrated across the entire dashboard. Avoids critical miscommunications by securing clear interaction globally.</div>
-      </div>
-      <div class="f-card reveal delay-2" tabindex="0">
-        <div class="f-icon-wrap">
-          <div class="f-icon">🎙️</div>
-          <div class="f-idx">05</div>
-        </div>
-        <div class="f-title">Hands-Free Telemetry</div>
-        <div class="f-desc">Secure voice-activated logging. Paramedics can dictate patient vitals, administered dosages, and incident notes while keeping hands securely on the patient.</div>
-      </div>
-      <div class="f-card reveal delay-3" tabindex="0">
-        <div class="f-icon-wrap">
-          <div class="f-icon">🗄️</div>
-          <div class="f-idx">06</div>
-        </div>
-        <div class="f-title">Synchronized Handoff</div>
-        <div class="f-desc">Dual-layer synchronized architecture pushes live incident logs securely to the receiving emergency room before the ambulance parks.</div>
-      </div>
-    </div>
-
-    <!-- Timeline embedded within Features view for flow -->
-    <div class="workflow-container reveal delay-1" id="timelineSection">
-      <div class="section-header center">
-        <h2>The Emergency Pipeline</h2>
-        <p>Four distinct phases. One unified tactical interface.</p>
-      </div>
-      <div class="timeline">
-        <div class="timeline-track"></div>
-        <div class="timeline-progress"></div>
-        <div class="step reveal-scale delay-1">
-          <div class="step-dot">1</div>
-          <div class="step-title">Dispatch & Arrival</div>
-          <div class="step-desc">Location pinging, dynamic routing, and instant demographic capture on the field.</div>
-        </div>
-        <div class="step reveal-scale delay-2">
-          <div class="step-dot">2</div>
-          <div class="step-title">Field Stabilization</div>
-          <div class="step-desc">Intelligent symptom logging, vital sign tracking, and applied rapid triage protocols.</div>
-        </div>
-        <div class="step reveal-scale delay-3">
-          <div class="step-dot">3</div>
-          <div class="step-title">Optimized Transport</div>
-          <div class="step-desc">Finding the fastest path to the appropriate verified emergency facility securely.</div>
-        </div>
-        <div class="step reveal-scale delay-4">
-          <div class="step-dot">4</div>
-          <div class="step-title">Hospital Handoff</div>
-          <div class="step-desc">Instant delivery of patient care reports (PCR) to triage nurses prior to physical arrival.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ABOUT US SECTION -->
-<section id="view-about" class="view">
-  <div class="container">
-    <div class="about-grid">
-      <div class="about-content reveal-left">
-        <h2>Pioneers in <span>Emergency</span><br>Response Architecture.</h2>
-        <p>NexaMed was conceived in response to a fundamental communication gap in high-stress emergency management. When minutes directly correlate to survivability, relying on fragmented tools, radio miscommunication, and paper records is unacceptable.</p>
-        <p>We designed this system from an architectural foundation of <strong>absolute zero latency</strong>. It is built to seamlessly failover when mobile networks degrade—leveraging robust local caching mechanisms while in transit, and instantly pushing to secure hospital endpoints the moment connectivity is restored.</p>
-        <p>This is not just software. It is a tactical command instrument built exclusively to save lives.</p>
-        <button class="btn btn-outline" style="margin-top: 24px;" onclick="navigate('contact')">Partner With Us</button>
-      </div>
-      <div class="about-visual reveal-right delay-2">
-        <div class="floating-badge fb-2"><div class="dot-blue"></div> Local Data Redundancy</div>
-        <div class="floating-badge fb-3"><div class="dot-green"></div> 99.99% Uptime SLA</div>
-        
-        <!-- Professional Tech/Network Image -->
-        <div class="about-visual-bg"></div>
-        <div class="about-visual-overlay"></div>
-        <div class="scanner-line"></div>
-        
-        <div class="v-inner">
-          <div class="radar-blip"><div class="radar-core"></div></div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- CONTACT US SECTION -->
-<section id="view-contact" class="view">
-  <div class="container" style="max-width: 1400px; padding: 0 5%;">
-    <div class="section-header center reveal">
-      <h2>Connect your <span>Dispatch Grid.</span></h2>
-      <p>Whether you're operating a regional emergency network, a private ambulance fleet, or a district hospital, NexaMed can perfectly integrate with your existing operational blueprint.</p>
-    </div>
-    
-    <div class="contact-layout">
-      <!-- Left side specific details -->
-      <div class="contact-info-block reveal-left delay-1">
-        <div class="ci-item">
-          <div class="ci-icon">📍</div>
-          <div class="ci-content">
-            <h4>NexaMed Headquarters</h4>
-            <p>Sector G-10/4, Command Operations<br>Islamabad, Pakistan 44000</p>
+        <p class="hdesc">Enterprise-grade AI triage command infrastructure. Llama&#x2011;3 powered clinical analysis, NADRA biometric identity verification, and real-time n8n dispatch pipelines&mdash;converging into a single unified EMT canvas.</p>
+        <div class="hacts">
+          <div style="position:relative">
+            <span class="sos-ring"></span>
+            <a href="/#/login" id="sbtn" class="btn-sos">&#x1F6A8; TRIGGER LIVE SOS DEMO</a>
           </div>
-        </div>
-        <div class="ci-item">
-          <div class="ci-icon">📞</div>
-          <div class="ci-content">
-            <h4>24/7 Deployment Support</h4>
-            <p>+92 (51) 888-0012<br>Toll-free emergency tech-line</p>
-          </div>
-        </div>
-        <div class="ci-item">
-          <div class="ci-icon">✉️</div>
-          <div class="ci-content">
-            <h4>Integration & API Access</h4>
-            <p>integrations@nexamed.org<br>Response time usually under 1 hour.</p>
-          </div>
-        </div>
-        <div style="margin-top: 20px; padding: 24px; background: rgba(59,130,246,0.1); border-radius: 16px; border: 1px solid rgba(59,130,246,0.2);">
-          <h4 style="font-family: var(--font-display); color: #60a5fa; margin-bottom: 8px;">Notice for Independent Fleets</h4>
-          <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.6;">If you operate fewer than 5 active field units, please note that our cloud deployment package is automatically tailored for rapid, self-serve scale operations without heavy backend overhead.</p>
+          <a href="/#/login" class="btn-sec">&#x1F510; EMT SECURE LOGIN</a>
         </div>
       </div>
-      
-      <!-- Right side form -->
-      <div class="contact-wrap reveal-right delay-2">
-        <form onsubmit="event.preventDefault(); addRipple(event); setTimeout(()=>alert('Request transmitted securely. A deployment architect will contact you directly.'), 600);">
-          <div style="display: flex; gap: 24px; flex-wrap: wrap;">
-            <div class="c-group" style="flex:1; min-width: 200px;">
-              <label>FULL NAME</label>
-              <input type="text" placeholder="Dr. Sarah Ahmed" required>
-            </div>
-            <div class="c-group" style="flex:1; min-width: 200px;">
-              <label>ORGANIZATION / HOSPITAL</label>
-              <input type="text" placeholder="e.g. Shifa / District EMS" required>
+      <div class="hcwrap">
+        <canvas id="ocan" width="460" height="460"></canvas>
+        <div class="olabel">NEURAL DISPATCH MATRIX // AI ACTIVE</div>
+      </div>
+    </section>
+
+    <!-- STATS BAR -->
+    <div class="statsbar" style="margin:0 44px 72px;max-width:1200px;margin-left:auto;margin-right:auto">
+      <div class="si"><div class="sv" style="color:#dc3545">4.2<span class="su">s</span></div><div class="sl">AVG TRIAGE RESPONSE</div></div>
+      <div class="si"><div class="sv" style="color:#17a2b8">99.97<span class="su">%</span></div><div class="sl">SYSTEM UPTIME</div></div>
+      <div class="si"><div class="sv" style="color:#f59e0b">3.2K<span class="su">+</span></div><div class="sl">INCIDENTS PROCESSED</div></div>
+      <div class="si"><div class="sv" style="color:#a78bfa">8</div><div class="sl">AI MODEL FALLBACKS</div></div>
+    </div>
+
+    <!-- TIMELINE -->
+    <section id="sec-timeline">
+      <div class="slabel rv">// SYSTEM LIFECYCLE TELEMETRY</div>
+      <h2 class="stitle rv d1">Incident to Resolution<br><span style="color:var(--text3)">in Milliseconds.</span></h2>
+      <p class="sdesc rv d2">Every emergency signal traverses a hardened, multi-stage agentic pipeline &mdash; from raw GPS coordinates to clinical dispatch in under 5 seconds.</p>
+      <div class="tline">
+        <div class="phase" id="p1">
+          <div class="pnode"><div class="pdot r">&#x1F4E1;</div><div class="pnum">01</div></div>
+          <div class="pcard r">
+            <div class="ptag r">PHASE 01 // INPUT CAPTURE</div>
+            <div class="ptitle">Distress Signal Capture</div>
+            <div class="pdesc">Citizen panic button triggers geolocation acquisition and structured JSON payload assembly. Raw GPS coordinates, emergency description, and ISO&#x2011;8601 timestamp are captured simultaneously.</div>
+            <div class="pviz">
+              <div class="pvrow"><div class="vping" style="background:var(--red);box-shadow:0 0 6px var(--red)"></div><span style="color:var(--red);font-size:9.5px">SIGNAL LOCKED</span><span style="margin-left:auto;font-size:8.5px">31.5204&deg;N, 74.3587&deg;E</span></div>
+              <div class="pvrow"><span style="font-size:8.5px">PAYLOAD</span><div class="vbar"><div class="vbf" style="background:var(--red)"></div></div></div>
+              <div class="pvrow"><span style="font-size:8.5px">TIMESTAMP</span><div class="vbar"><div class="vbf" style="background:rgba(220,53,69,.5);animation-delay:.35s"></div></div></div>
             </div>
           </div>
-          <div class="c-group">
-            <label>SECURE CONTACT EMAIL</label>
-            <input type="email" placeholder="sysadmin@domain.com" required>
+        </div>
+        <div class="phase" id="p2" style="transition-delay:.12s">
+          <div class="pnode"><div class="pdot c">&#x26A1;</div><div class="pnum">02</div></div>
+          <div class="pcard c">
+            <div class="ptag c">PHASE 02 // ASYNC PIPELINE</div>
+            <div class="ptitle">Asynchronous Webhook Dispatch</div>
+            <div class="pdesc">n8n production automation cluster receives the structured payload with zero&#x2011;delay HTTP forwarding. Parallel execution triggers notification chains, database writes, and EMT alert broadcasts simultaneously.</div>
+            <div class="pviz">
+              <div class="pvrow"><span style="font-size:8.5px">n8n PIPELINE</span><div class="ppipe"><div class="ppd"></div><div class="ppl"></div><div class="ppd"></div><div class="ppl"></div><div class="ppd"></div><div class="ppl"></div><div class="ppd"></div><div class="ppl"></div><div class="ppd"></div></div><span style="color:var(--cyan);font-size:8.5px">LIVE</span></div>
+              <div class="pvrow" style="font-size:8.5px"><span>SOS_WEBHOOK</span><span style="margin:0 5px;color:var(--cyan)">&rarr;</span><span>BROADCAST</span><span style="margin:0 5px;color:var(--cyan)">&rarr;</span><span>FIRESTORE</span></div>
+            </div>
           </div>
-          <div class="c-group">
-            <label>CURRENT FLEET SIZE & INTEGRATION NEEDS</label>
-            <textarea rows="5" placeholder="Specify your region, active ambulance count, and which features you intend to utilize..." required></textarea>
+        </div>
+        <div class="phase" id="p3" style="transition-delay:.24s">
+          <div class="pnode"><div class="pdot r">&#x1F9E0;</div><div class="pnum">03</div></div>
+          <div class="pcard r">
+            <div class="ptag r">PHASE 03 // AI DIAGNOSTICS</div>
+            <div class="ptitle">Agentic AI Clinical Sorting</div>
+            <div class="pdesc">Llama&#x2011;3 70B compiles structured clinical summaries from voice intake and biometric data. NADRA identity verification runs concurrently &mdash; safely activating John Doe protocols for unverified profiles, children, or missing&#x2011;data patients.</div>
+            <div class="pviz">
+              <div class="pvrow"><span style="font-size:8.5px">LLAMA-3 70B</span><div class="vbar"><div class="vbf" style="background:linear-gradient(90deg,var(--red),#f59e0b);animation-delay:.1s"></div></div><span style="color:var(--red);font-size:8.5px">ANALYZING</span></div>
+              <div class="pvrow"><span style="font-size:8.5px">NADRA BIO</span><div class="vbar"><div class="vbf" style="background:rgba(220,53,69,.6);animation-delay:.5s"></div></div><span style="font-size:8.5px">VERIFIED</span></div>
+            </div>
           </div>
-          <div style="text-align: right; margin-top: 32px;">
-            <button type="submit" class="btn btn-primary">Transmit Request →</button>
+        </div>
+        <div class="phase" id="p4" style="transition-delay:.36s">
+          <div class="pnode"><div class="pdot c">&#x1F4E7;</div><div class="pnum">04</div></div>
+          <div class="pcard c">
+            <div class="ptag c">PHASE 04 // DISSEMINATION</div>
+            <div class="ptitle">Instant Cloud Alert Broadcast</div>
+            <div class="pdesc">An adaptive HTML triage email carrying the full clinical summary, GPS coordinates, and patient priority level is dispatched instantly to all registered response networks and nearby hospital nodes.</div>
+            <div class="pviz">
+              <div class="pvrow"><span class="efly">&#x1F4E7;</span><span style="font-size:8.5px;margin-left:7px">DISPATCHING TO 12 RESPONSE NODES</span></div>
+              <div class="pvrow"><span style="font-size:8.5px;color:var(--cyan)">&#x2713;</span><span style="font-size:8.5px;margin-left:4px">DHQ Hospital Lahore &mdash; ETA 4.2 min</span></div>
+              <div class="pvrow"><span style="font-size:8.5px;color:var(--cyan)">&#x2713;</span><span style="font-size:8.5px;margin-left:4px">Rescue 1122 Unit 7 &mdash; ETA 2.8 min</span></div>
+            </div>
           </div>
-        </form>
+        </div>
       </div>
-    </div>
-  </div>
-</section>
+    </section>
+
+    <!-- BROWSER MOCKUP -->
+    <section id="sec-demo" class="msec">
+      <div class="slabel rv">// LIVE SYSTEM PREVIEW</div>
+      <h2 class="stitle rv d1">See the Command Canvas<br><span style="color:var(--text3)">in Full Operation.</span></h2>
+      <p class="sdesc rv d2" style="margin:0 auto 44px;text-align:center">The NexaMed EMT canvas delivers a multi-panel clinical workspace with real-time map tracking, AI analysis, and one-click PDF report generation.</p>
+      <div class="mwrap rv d3">
+        <div class="bmock" id="bmock">
+          <div class="bchrome">
+            <div class="cdots"><div class="cd cdr"></div><div class="cd cdy"></div><div class="cd cdg"></div></div>
+            <div class="cbar">nexamed.command // 127.0.0.1:5173 // EMT CANVAS &bull; ACTIVE</div>
+          </div>
+          <div class="bcont">
+            <div class="mock-db">
+              <div class="mock-sb">
+                <div style="font-family:var(--fmono);font-size:8.5px;color:var(--text3);letter-spacing:2px;margin-bottom:7px;padding:0 3px">MODULES</div>
+                <div class="sb-item act">&#x1F6A8; Active Triage</div>
+                <div class="sb-item">&#x1F5FA;&#xFE0F; Incident Map</div>
+                <div class="sb-item">&#x1F9E0; AI Analysis</div>
+                <div class="sb-item">&#x1FA96; NADRA Scan</div>
+                <div class="sb-item">&#x1F4CB; PCR Reports</div>
+                <div class="sb-item">&#x1F4CA; Analytics</div>
+              </div>
+              <div class="mock-mn">
+                <div class="mhdr"><div class="mt">Active Incident &mdash; Lahore Central</div><div class="mb">CRITICAL</div></div>
+                <div class="mcards">
+                  <div class="mc"><div class="mcv" style="color:var(--red)">78</div><div class="mcl">HEART RATE</div></div>
+                  <div class="mc"><div class="mcv" style="color:var(--cyan)">94%</div><div class="mcl">SpO2</div></div>
+                  <div class="mc"><div class="mcv" style="color:var(--gold)">120/80</div><div class="mcl">BLOOD PRESSURE</div></div>
+                </div>
+                <div class="mmap" style="flex:1">
+                  <div class="mgrid"></div>
+                  <div class="mpin" style="top:40%;left:45%"></div>
+                  <div class="mpin" style="top:58%;left:62%;background:var(--cyan);box-shadow:0 0 9px var(--cyan);animation-delay:.5s"></div>
+                  <div style="font-family:var(--fmono);font-size:8.5px;color:var(--text3);letter-spacing:1px;z-index:1">LIVE MAP // 2 UNITS ACTIVE</div>
+                </div>
+              </div>
+            </div>
+            <div class="povl" id="povl" onclick="document.getElementById('povl').style.display='none'">
+              <div><div class="pbtn">&#x25B6;</div><div class="ptxt">WATCH SYSTEM DEMO</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- METRICS -->
+    <section id="sec-metrics">
+      <div class="slabel rv">// REAL-TIME INCIDENT MATRIX</div>
+      <h2 class="stitle rv d1">Live Emergency<br><span style="color:var(--text3)">Case Distribution.</span></h2>
+      <p class="sdesc rv d2">Continuously monitored incident classification across all active network nodes.</p>
+      <div class="mgrid3">
+        <div class="mpanel cr" id="mp-cr">
+          <div class="mphdr"><div class="mstat cr">CRITICAL</div><div class="micon">&#x1F534;</div></div>
+          <div class="mval cr" id="cnt-cr">0</div>
+          <div class="mlbl">ACTIVE CRITICAL INCIDENTS</div>
+          <div class="mwwrap"><canvas class="wcan" id="wc-cr" width="400" height="56"></canvas><div class="sbeam" style="background:linear-gradient(90deg,transparent,rgba(220,53,69,.13),transparent)"></div></div>
+          <div class="mtrend"><span class="tup">&uarr; 12%</span><span>from last hour</span></div>
+        </div>
+        <div class="mpanel ur" id="mp-ur" style="transition-delay:.12s">
+          <div class="mphdr"><div class="mstat ur">URGENT</div><div class="micon">&#x1F7E1;</div></div>
+          <div class="mval ur" id="cnt-ur">0</div>
+          <div class="mlbl">ESCALATED PRIORITY CASES</div>
+          <div class="mwwrap"><canvas class="wcan" id="wc-ur" width="400" height="56"></canvas><div class="sbeam" style="background:linear-gradient(90deg,transparent,rgba(245,158,11,.13),transparent);animation-delay:.85s"></div></div>
+          <div class="mtrend"><span class="tdn">&darr; 5%</span><span>from last hour</span></div>
+        </div>
+        <div class="mpanel st" id="mp-st" style="transition-delay:.24s">
+          <div class="mphdr"><div class="mstat st">STABLE</div><div class="micon">&#x1F535;</div></div>
+          <div class="mval st" id="cnt-st">0</div>
+          <div class="mlbl">RESOLVED STABLE CASES</div>
+          <div class="mwwrap"><canvas class="wcan" id="wc-st" width="400" height="56"></canvas><div class="sbeam" style="background:linear-gradient(90deg,transparent,rgba(23,162,184,.13),transparent);animation-delay:1.7s"></div></div>
+          <div class="mtrend"><span class="tdn">&uarr; 28%</span><span>resolution rate</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section style="padding:72px 44px">
+      <div class="ctacard rv">
+        <div class="slabel" style="margin-bottom:18px">// COMMAND READY</div>
+        <h2 class="ctatitle">Deploy the Future of<br><span style="color:var(--red)">Emergency Response</span></h2>
+        <p class="ctadesc">Your EMT unit deserves mission-critical infrastructure. NexaMed is combat-ready &mdash; authenticate and activate the full agentic pipeline in under 60 seconds.</p>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+          <a href="/#/login" class="btn-sos">&#x1F680; ACTIVATE SYSTEM NOW</a>
+          <a href="/#/login" class="btn-sec">&#x1F4CB; VIEW DOCUMENTATION</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div>NEXAMED COMMAND SYSTEM // v3.2 // AGENTIC EMT INFRASTRUCTURE</div>
+    <div>&copy; 2026 NexaMed &middot; All Rights Reserved</div>
+    <div style="color:var(--red)">SYSTEM: ONLINE</div>
+  </footer>
 
 <script>
-// SPA Navigation & Animation Logic
-function navigate(viewId) {
-  const views = document.querySelectorAll('.view');
-  
-  // Ignore if already active
-  const targetView = document.getElementById('view-' + viewId);
-  if (targetView && targetView.classList.contains('active')) return;
-  
-  // Trigger exit animations
-  views.forEach(v => {
-    if(v.classList.contains('active')) {
-      v.style.animation = 'exitView 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards';
-    }
-  });
-  
-  // Wait for exit, then activate new view
-  setTimeout(() => {
-    views.forEach(v => {
-      v.classList.remove('active');
-      v.style.animation = ''; // Reset CSS animation
-    });
-    
-    if (targetView) {
-      targetView.classList.add('active');
-      targetView.style.animation = 'enterView 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards';
-    }
-    
-    // Update nav states
-    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-    const activeBtn = document.querySelector(`.nav-btn[data-target="${viewId}"]`);
-    if (activeBtn) activeBtn.classList.add('active');
-    
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    
-    // Re-trigger reveal animations in the new view
-    setTimeout(() => { observeElements(); }, 100);
-  }, 400);
-}
-
-// Button Ripple Effect
-function addRipple(e) {
-  const btn = e.currentTarget;
-  if(!btn) return;
-  btn.classList.remove('click-ripple');
-  void btn.offsetWidth; // trigger reflow
-  btn.classList.add('click-ripple');
-}
-
-document.querySelectorAll('.btn').forEach(button => {
-  button.addEventListener('click', addRipple);
+/* ── CURSOR ── */
+const cx=document.getElementById('cx'),cr=document.getElementById('cr');
+document.addEventListener('mousemove',e=>{
+  cx.style.left=e.clientX+'px';cx.style.top=e.clientY+'px';
+  cr.style.left=e.clientX+'px';cr.style.top=e.clientY+'px';
+});
+document.querySelectorAll('a,button,.pcard,.mpanel,.sb-item').forEach(el=>{
+  el.addEventListener('mouseenter',()=>cr.classList.add('h'));
+  el.addEventListener('mouseleave',()=>cr.classList.remove('h'));
 });
 
-// Scroll / Navbar Shadow Logic
-window.addEventListener('scroll', () => {
-  const header = document.getElementById('navHeader');
-  if (window.scrollY > 50) {
-    header.classList.add('scrolled');
-  } else {
-    header.classList.remove('scrolled');
+/* ── NAV SCROLL ── */
+window.addEventListener('scroll',()=>{
+  document.getElementById('nav').classList.toggle('scrolled',window.scrollY>60);
+});
+
+/* ── TYPEWRITER ── */
+const phrases=['Seconds Save Lives.','Zero Data Gaps.','NADRA Framework Aligned.','Llama-3 Clinical Intelligence.','n8n Automation Pipeline Active.'];
+let pi=0,ci=0,del=false;
+const tel=document.getElementById('tw');
+function tstep(){
+  const p=phrases[pi];
+  if(!del){ci++;tel.textContent=p.slice(0,ci);
+    if(ci===p.length){del=true;setTimeout(tstep,2000);return;}
+    setTimeout(tstep,50+Math.random()*40);
+  }else{ci--;tel.textContent=p.slice(0,ci);
+    if(ci===0){del=false;pi=(pi+1)%phrases.length;setTimeout(tstep,380);return;}
+    setTimeout(tstep,24);
   }
-});
-
-// Loader & Initial Logic
-window.addEventListener('load', () => {
-  setTimeout(() => {
-    const loader = document.getElementById('loader');
-    if (loader) {
-      loader.style.opacity = '0';
-      loader.style.visibility = 'hidden';
-      setTimeout(() => loader.remove(), 800);
-    }
-    animateCounter('s-resp', 0, 4.2, 1300, true);
-    animateCounter('s-hosp', 0, 84, 1600, false);
-    observeElements();
-  }, 1200); 
-});
-
-// Stats Counter Animation
-function animateCounter(id, from, to, duration, isFloat) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const startTime = performance.now();
-  
-  const update = (currentTime) => {
-    const progress = Math.min((currentTime - startTime) / duration, 1);
-    const easeOutQuart = 1 - Math.pow(1 - progress, 4); 
-    const currentVal = from + easeOutQuart * (to - from);
-    
-    if (isFloat) {
-      el.innerHTML = currentVal.toFixed(1) + '<span>m</span>';
-    } else {
-      el.innerHTML = Math.floor(currentVal);
-    }
-    
-    if (progress < 1) requestAnimationFrame(update);
-  };
-  requestAnimationFrame(update);
 }
+tstep();
 
-// Intersection Observer for Reveal Animations
-function observeElements() {
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('visible');
-        observer.unobserve(entry.target); 
-        
-        if(entry.target.id === 'timelineSection') {
-          document.querySelector('.timeline').classList.add('visible');
+/* ── PARTICLE ORB ── */
+(function(){
+  const can=document.getElementById('ocan');if(!can)return;
+  const ctx=can.getContext('2d'),W=can.width,H=can.height,cx=W/2,cy=H/2;
+  let mx=cx,my=cy,rY=0,rX=0,tY=0,tX=0,t=0;
+  const R=148,N=210;
+  const pts=[];
+  for(let i=0;i<N;i++){
+    const th=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);
+    pts.push({th,ph,sp:(Math.random()-.5)*.0028,sz:Math.random()*1.6+.5,ct:Math.random()});
+  }
+  function rot3(x,y,z,rx,ry){
+    const x1=x*Math.cos(ry)+z*Math.sin(ry),z1=-x*Math.sin(ry)+z*Math.cos(ry);
+    const y2=y*Math.cos(rx)-z1*Math.sin(rx),z2=y*Math.sin(rx)+z1*Math.cos(rx);
+    return{x:x1,y:y2,z:z2};
+  }
+  function proj(x,y,z){
+    const f=580,s=f/(f+z+200);return{x:x*s+cx,y:y*s+cy,s};
+  }
+  function lc(t,a){
+    const r=Math.round(220+(23-220)*t),g=Math.round(53+(162-53)*t),b=Math.round(69+(184-69)*t);
+    return`rgba(${r},${g},${b},${a})`;
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);t+=.006;
+    const dx=mx-cx,dy=my-cy;
+    tY=dx*.0028;tX=dy*.0028;
+    rY+=(tY-rY)*.038;rX+=(tX-rX)*.038;
+    const br=1+.042*Math.sin(t*1.7);
+    const projected=pts.map(p=>{
+      p.th+=p.sp;
+      const r=R*br;
+      const x=r*Math.sin(p.ph)*Math.cos(p.th),y=r*Math.cos(p.ph),z=r*Math.sin(p.ph)*Math.sin(p.th);
+      const ro=rot3(x,y,z,rX,rY+t*.08);
+      const pr=proj(ro.x,ro.y,ro.z);
+      const zn=(ro.z+R)/(R*2);
+      return{px:pr.x,py:pr.y,pz:ro.z,s:pr.s,zn,ct:p.ct,sz:p.sz};
+    });
+    projected.sort((a,b)=>a.pz-b.pz);
+    const th=50;
+    for(let i=0;i<projected.length;i++){
+      let c=0;
+      for(let j=i+1;j<projected.length&&c<4;j++){
+        const ddx=projected[i].px-projected[j].px,ddy=projected[i].py-projected[j].py;
+        const d=Math.sqrt(ddx*ddx+ddy*ddy);
+        if(d<th){c++;
+          const a=(1-d/th)*.16*projected[i].zn;
+          ctx.beginPath();ctx.strokeStyle=lc((projected[i].ct+projected[j].ct)*.5,a);
+          ctx.lineWidth=.55;ctx.moveTo(projected[i].px,projected[i].py);
+          ctx.lineTo(projected[j].px,projected[j].py);ctx.stroke();
         }
       }
+    }
+    projected.forEach(p=>{
+      const a=.22+p.zn*.78,sz=p.sz*p.s*1.7;
+      const g=ctx.createRadialGradient(p.px,p.py,0,p.px,p.py,sz*3.2);
+      g.addColorStop(0,lc(p.ct,a*.48));g.addColorStop(1,lc(p.ct,0));
+      ctx.beginPath();ctx.fillStyle=g;ctx.arc(p.px,p.py,sz*3.2,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.fillStyle=lc(p.ct,a);ctx.arc(p.px,p.py,sz,0,Math.PI*2);ctx.fill();
     });
-  }, { threshold: 0.15, rootMargin: "0px 0px -40px 0px" });
-
-  document.querySelectorAll('.reveal, .reveal-left, .reveal-right, .reveal-scale, #timelineSection').forEach((el) => {
-    el.classList.remove('visible');
-    if(el.classList.contains('timeline')) el.classList.remove('visible');
-    observer.observe(el);
+    requestAnimationFrame(draw);
+  }
+  const wrap=can.parentElement;
+  wrap.addEventListener('mousemove',e=>{
+    const rc=can.getBoundingClientRect();
+    mx=((e.clientX-rc.left)/rc.width)*W;
+    my=((e.clientY-rc.top)/rc.height)*H;
   });
-}
-</script>
+  wrap.addEventListener('mouseleave',()=>{mx=cx;my=cy;});
+  draw();
+})();
 
+/* ── WAVE ANIMATION ── */
+(function(){
+  const cfg=[
+    {id:'wc-cr',color:'rgba(220,53,69,',amp:12,fr:.024,ph:0},
+    {id:'wc-ur',color:'rgba(245,158,11,',amp:9,fr:.017,ph:2},
+    {id:'wc-st',color:'rgba(23,162,184,',amp:11,fr:.021,ph:4},
+  ];
+  const cs=cfg.map(c=>{
+    const el=document.getElementById(c.id);
+    return el?{ctx:el.getContext('2d'),w:el.width,h:el.height,...c}:null;
+  }).filter(Boolean);
+  let t=0;
+  function tick(){
+    t+=.04;
+    cs.forEach(c=>{
+      const{ctx,w,h,color,amp,fr,ph}=c;
+      ctx.clearRect(0,0,w,h);
+      // Wave 1
+      ctx.beginPath();ctx.moveTo(0,h/2);
+      for(let x=0;x<=w;x++){
+        const y=h/2+amp*Math.sin(x*fr+t+ph)+amp*.38*Math.sin(x*fr*1.7+t*1.3+ph);
+        ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle=color+'.82)';ctx.lineWidth=2;ctx.stroke();
+      // Wave 2 ghost
+      ctx.beginPath();ctx.moveTo(0,h/2);
+      for(let x=0;x<=w;x++){
+        const y=h/2+amp*.55*Math.sin(x*fr*1.2-t*.7+ph+1)+amp*.28*Math.cos(x*fr*2+t+ph);
+        ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle=color+'.22)';ctx.lineWidth=1;ctx.stroke();
+      // Fill
+      ctx.beginPath();ctx.moveTo(0,h);
+      for(let x=0;x<=w;x++){
+        const y=h/2+amp*Math.sin(x*fr+t+ph)+amp*.38*Math.sin(x*fr*1.7+t*1.3+ph);
+        ctx.lineTo(x,y);
+      }
+      ctx.lineTo(w,h);ctx.closePath();
+      const gr=ctx.createLinearGradient(0,0,0,h);
+      gr.addColorStop(0,color+'.1)');gr.addColorStop(1,color+'0)');
+      ctx.fillStyle=gr;ctx.fill();
+    });
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
+
+/* ── COUNTER ── */
+function animCnt(id,target,dur){
+  const el=document.getElementById(id);if(!el)return;
+  const s=performance.now();
+  function step(n){
+    const p=Math.min((n-s)/dur,1),e=1-Math.pow(1-p,3);
+    el.textContent=Math.round(e*target);
+    if(p<1)requestAnimationFrame(step);
+  }requestAnimationFrame(step);
+}
+
+/* ── INTERSECTION OBSERVER ── */
+const io=new IntersectionObserver(e=>e.forEach(en=>{
+  if(en.isIntersecting){en.target.classList.add('vis');io.unobserve(en.target);}
+}),{threshold:.1});
+document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+
+const pio=new IntersectionObserver(e=>e.forEach(en=>{
+  if(en.isIntersecting){en.target.classList.add('vis');pio.unobserve(en.target);}
+}),{threshold:.14});
+document.querySelectorAll('.phase').forEach(el=>pio.observe(el));
+
+const mio=new IntersectionObserver(e=>e.forEach(en=>{
+  if(en.isIntersecting){
+    en.target.classList.add('vis');
+    const id=en.target.id;
+    if(id==='mp-cr')animCnt('cnt-cr',47,1400);
+    if(id==='mp-ur')animCnt('cnt-ur',124,1500);
+    if(id==='mp-st')animCnt('cnt-st',389,1900);
+    mio.unobserve(en.target);
+  }
+}),{threshold:.18});
+document.querySelectorAll('.mpanel').forEach(el=>mio.observe(el));
+
+const bio=new IntersectionObserver(e=>e.forEach(en=>{
+  if(en.isIntersecting){
+    en.target.classList.add('vis');
+    setTimeout(()=>en.target.classList.add('flat'),420);
+    bio.unobserve(en.target);
+  }
+}),{threshold:.38});
+const bm=document.getElementById('bmock');
+if(bm)bio.observe(bm);
+
+/* ── CARD TILT ── */
+document.querySelectorAll('.pcard,.mpanel').forEach(card=>{
+  card.addEventListener('mousemove',e=>{
+    const r=card.getBoundingClientRect();
+    const dx=(e.clientX-r.left-r.width/2)/r.width;
+    const dy=(e.clientY-r.top-r.height/2)/r.height;
+    card.style.transform=`perspective(760px) rotateY(${dx*6}deg) rotateX(${-dy*4}deg) translateX(4px)`;
+  });
+  card.addEventListener('mouseleave',()=>card.style.transform='');
+});
+
+/* ── RIPPLE ── */
+const styl=document.createElement('style');
+styl.textContent='@keyframes rout{to{transform:scale(1);opacity:0}}';
+document.head.appendChild(styl);
+document.querySelectorAll('.btn-sos,.btn-enter').forEach(btn=>{
+  btn.addEventListener('click',function(e){
+    const rp=document.createElement('span');
+    rp.style.cssText='position:absolute;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,.18);top:'+(e.offsetY-90)+'px;left:'+(e.offsetX-90)+'px;transform:scale(0);animation:rout .58s ease-out forwards;pointer-events:none';
+    if(getComputedStyle(this).position==='static')this.style.position='relative';
+    this.appendChild(rp);setTimeout(()=>rp.remove(),600);
+  });
+});
+</script>
 </body>
 </html>

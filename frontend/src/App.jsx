@@ -28,6 +28,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { useAuth } from "./context/AuthContext";
+import BiometricPanel from "./components/BiometricPanel";
 
 const BACKEND = "http://127.0.0.1:8000";
 
@@ -85,6 +86,7 @@ const T = {
     nearest: "NEAREST", navigate: "Navigate",
     visit: "Visit #", voiceStep: "Step", voiceOf: "of",
     speaking: "🔊 Speaking…", listening: "🎙 Listening…",
+    processing: "🔄 Processing Voice…", voiceSaved: "✅ Step Saved! Moving next…",
     done: "✓ Done", voiceError: "⚠ Error",
     voiceComplete: "Voice interview complete! Form auto-filled.",
     cnicApplied: "CNIC applied", age2: "age",
@@ -141,6 +143,7 @@ const T = {
     nearest: "قریب ترین", navigate: "راستہ",
     visit: "دورہ #", voiceStep: "مرحلہ", voiceOf: "میں سے",
     speaking: "🔊 بول رہا ہے…", listening: "🎙 سن رہا ہے…",
+    processing: "🔄 آواز پر کارروائی ہو رہی ہے…", voiceSaved: "✅ محفوظ ہو گیا! اگلا سوال…",
     done: "✓ مکمل", voiceError: "⚠ خرابی",
     voiceComplete: "آواز مکمل! فارم بھر گیا۔",
     cnicApplied: "شناختی کارڈ لگایا گیا", age2: "عمر",
@@ -197,6 +200,7 @@ const T = {
     nearest: "QAREEB TAREEN", navigate: "Raasta Dekhein",
     visit: "Visit #", voiceStep: "Marhalay", voiceOf: "mein se",
     speaking: "🔊 Bol raha hai…", listening: "🎙 Sun raha hai…",
+    processing: "🔄 Awaz process ho rahi hai…", voiceSaved: "✅ Save ho gaya! Agla sawal…",
     done: "✓ Mukammal", voiceError: "⚠ Kharabi",
     voiceComplete: "Awaaz mukammal! Form bhar gaya.",
     cnicApplied: "CNIC laga diya", age2: "umar",
@@ -208,37 +212,139 @@ const T = {
 // ═══════════════════════════════════════════════════════════════════════════
 // VOICE QUESTIONS — all 3 languages
 // ═══════════════════════════════════════════════════════════════════════════
-const VOICE_FIELDS = ["name","description","age","heart_rate","blood_pressure","oxygen_saturation"];
+// Field keys match the actual `form` state shape used throughout the app
+// (name, father_name, description, heart_rate, blood_pressure,
+// oxygen_saturation, location, allergies) — not placeholder names, so voice
+// answers land in the same fields the visible inputs are bound to.
+const VOICE_FIELDS = [
+  "location", "description", "name", "father_name", "cnic",
+  "age", "heart_rate", "blood_pressure", "oxygen_saturation", "allergies",
+];
 const VOICE_QS = {
   "en": [
-    "What is the patient's full name?",
+    "Where did the incident occur?",
     "Describe the emergency. What are the symptoms and how did it happen?",
+    "What is the patient's full name?",
+    "What is the patient's father's or husband's name?",
+    "Please state the patient's 13-digit CNIC number if known.",
     "What is the patient's age in years?",
     "What is the heart rate in beats per minute?",
-    "What is the blood pressure? Say systolic over diastolic.",
+    "What is the blood pressure reading? For example, 120 over 80.",
     "What is the oxygen saturation percentage?",
+    "List any known allergies, or say 'none'.",
   ],
   "ur": [
-    "مریض کا پورا نام کیا ہے؟",
+    "واقعہ کہاں پیش آیا؟",
     "ایمرجنسی کیا ہے؟ علامات کیا ہیں؟",
+    "مریض کا پورا نام کیا ہے؟",
+    "مریض کے والد یا شوہر کا نام کیا ہے؟",
+    "اگر معلوم ہو تو مریض کا 13 ہندسوں پر مشتمل شناختی کارڈ نمبر بتائیں۔",
     "مریض کی عمر کتنی ہے؟",
     "دل کی دھڑکن فی منٹ کتنی ہے؟",
     "بلڈ پریشر کیا ہے؟",
     "آکسیجن کی سطح کیا ہے؟",
+    "کوئی معلوم الرجی ہو تو بتائیں، ورنہ 'کوئی نہیں' کہیں۔",
   ],
   "ru": [
-    "Mareez ka poora naam kya hai?",
+    "Waqia kahan pesh aaya?",
     "Emergency kya hai? Alamat kya hain aur kaise hua?",
+    "Mareez ka poora naam kya hai?",
+    "Mareez ke walid ya shohar ka naam kya hai?",
+    "Agar maloom ho to mareez ka 13 digit ka shanakhti card number bataein.",
     "Mareez ki umar kitni saal hai?",
     "Dil ki dhadkan per minute kitni hai?",
     "Blood pressure kya hai? Systolic over diastolic bolein.",
     "Oxygen saturation kitni hai?",
+    "Koi maloom allergy ho to batayein, warna 'koi nahi' kahein.",
   ],
 };
-// Speech-recognition language codes
-// Roman Urdu: people speak Urdu words but in Latin script — SR "ur-PK" captures spoken Urdu,
-// which is what they're saying even if they type in Roman. So ur-PK is correct for speaking.
-const SR_LANG = { "en": "en-US", "ur": "ur-PK", "ru": "ur-PK" };
+// gTTS language codes (server-side TTS via /api/voice/tts).
+// Roman Urdu: the EMT is still speaking Urdu words out loud, just displayed in
+// Latin script in the UI — so it uses the Urdu voice/model, not English.
+const TTS_LANG = { "en": "en", "ur": "ur", "ru": "ur" };
+// STT no longer needs a locale code — Groq's whisper-large-v3 *translation*
+// endpoint auto-detects the spoken language and always outputs English.
+
+// ── Voice hallucination/filler filter ────────────────────────────────────────
+// Whisper (and STT models generally) frequently hallucinate short filler
+// phrases on near-silent/ambient-noise audio — "you" and "Thank you." are the
+// two classic cases. These must never be written into a clinical field.
+const VOICE_FILLER_PHRASES = ["you", "thank you", "um", "uh", "go", "bye"];
+function isVoiceFiller(text) {
+  const cleaned = (text || "").toLowerCase().trim().replace(/[.,!?]+$/g, "").trim();
+  if (!cleaned) return true;
+  if (VOICE_FILLER_PHRASES.includes(cleaned)) return true;
+  // "contains only these words" — strip every filler phrase out and see if
+  // anything meaningful is left over.
+  let remainder = cleaned;
+  for (const phrase of VOICE_FILLER_PHRASES) remainder = remainder.split(phrase).join(" ");
+  return remainder.trim().length === 0;
+}
+
+// ── Spoken-number → digits (covers realistic vitals ranges, 0-999) ──────────
+// Whisper usually already renders spoken numbers as digits, but this is a
+// fallback for cases where it doesn't (e.g. "eighty five" spoken slowly).
+const VOICE_NUM_ONES = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9,
+  ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16,
+  seventeen:17, eighteen:18, nineteen:19 };
+const VOICE_NUM_TENS = { twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 };
+function wordsToNumber(text) {
+  const words = (text || "").toLowerCase().replace(/-/g, " ").split(/\s+/).filter(Boolean);
+  let current = 0, found = false;
+  for (const w of words) {
+    if (w === "and") continue;
+    if (w in VOICE_NUM_ONES)       { current += VOICE_NUM_ONES[w]; found = true; }
+    else if (w in VOICE_NUM_TENS)  { current += VOICE_NUM_TENS[w]; found = true; }
+    else if (w === "hundred")      { current = (current || 1) * 100; found = true; }
+    else if (/^\d+$/.test(w))      { current += parseInt(w, 10); found = true; }
+  }
+  return found ? current : null;
+}
+
+// Extract a single integer for a plain numeric vitals field (age, HR, SpO2).
+// Never writes alphabetic junk — an unparseable answer becomes an empty
+// field for manual entry, not garbled text sitting in a number-shaped box.
+function parseNumericField(text) {
+  const digitMatch = (text || "").match(/\d+/);
+  if (digitMatch) return digitMatch[0];
+  const asWords = wordsToNumber(text);
+  return asWords != null ? String(asWords) : "";
+}
+
+// "120 over 80" / "120/80" -> "120/80". Falls back to the trimmed raw text
+// if fewer than two numbers are found, rather than silently dropping it.
+function parseBloodPressure(text) {
+  const nums = (text || "").match(/\d+/g);
+  if (nums && nums.length >= 2) return `${nums[0]}/${nums[1]}`;
+  if (nums && nums.length === 1) return nums[0];
+  return (text || "").trim();
+}
+
+// Extract exactly 13 digits and format as XXXXX-XXXXXXX-X. A partial/garbled
+// read is left as raw digits (not force-padded into a fake-looking CNIC) so
+// the EMT can see and correct it manually.
+function parseCNIC(text) {
+  const digits = (text || "").replace(/\D/g, "");
+  if (digits.length === 13) return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+  return digits;
+}
+
+function capitalizeFirst(text) {
+  const t = (text || "").trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+}
+
+// ── Route a raw transcript through the correct parser for its target field ──
+const VOICE_NUMERIC_FIELDS      = new Set(["age", "heart_rate", "oxygen_saturation"]);
+const VOICE_CAPITALIZED_FIELDS  = new Set(["name", "father_name", "location"]);
+function parseVoiceField(fieldKey, rawText) {
+  const trimmed = (rawText || "").trim();
+  if (fieldKey === "cnic")            return parseCNIC(trimmed);
+  if (fieldKey === "blood_pressure")  return parseBloodPressure(trimmed);
+  if (VOICE_NUMERIC_FIELDS.has(fieldKey))     return parseNumericField(trimmed);
+  if (VOICE_CAPITALIZED_FIELDS.has(fieldKey)) return capitalizeFirst(trimmed);
+  return trimmed; // description, allergies — plain trim only
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FIRESTORE HELPERS
@@ -263,9 +369,9 @@ async function fsHistory(cnic) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FIX 1 — CNIC SCANNER via FREE Groq backend (no Anthropic key needed)
+// CNIC SCANNER — routes to /cnic/scan with selected engine
 // ═══════════════════════════════════════════════════════════════════════════
-async function scanCNICviaBackend(file) {
+async function scanCNICviaBackend(file, scan_method = "auto") {
   const b64 = await new Promise((res, rej) => {
     const r = new FileReader();
     r.onerror = () => rej(new Error("File read failed"));
@@ -276,15 +382,15 @@ async function scanCNICviaBackend(file) {
   const resp = await fetch(`${BACKEND}/cnic/scan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_base64: b64, media_type: file.type || "image/jpeg" }),
-    signal: AbortSignal.timeout(35000),
+    body: JSON.stringify({ image_base64: b64, media_type: file.type || "image/jpeg", scan_method }),
+    signal: AbortSignal.timeout(90000), // 90s — EasyOCR model download on first use
   });
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error(
       err.detail ||
-      `Backend error ${resp.status}. Make sure uvicorn is running and GROQ_API_KEY is in .env`
+      `Backend error ${resp.status}. Make sure uvicorn is running.`
     );
   }
   const json = await resp.json();
@@ -292,27 +398,32 @@ async function scanCNICviaBackend(file) {
   return json.data;
 }
 
+
 // ═══════════════════════════════════════════════════════════════════════════
-// VOICE ENGINE — Speak question aloud THEN listen for answer
-// Works in Chrome on localhost. Chrome TTS bug (stall) worked around with
-// a periodic resume() kick and a hard 10s timeout fallback.
+// VOICE ENGINE — TTS via backend gTTS (/api/voice/tts, plays through an
+// <audio> element for a natural voice); STT via MediaRecorder + Groq's hosted
+// whisper-large-v3 *translation* endpoint (/api/voice/stt) — the EMT can speak
+// Urdu, Roman Urdu, or English and it comes back as English text in one step.
+// Recording is continuous from the moment listening starts; nothing is
+// transcribed or advanced until the EMT taps "Submit Answer".
 // All stale closures eliminated via refs.
 // ═══════════════════════════════════════════════════════════════════════════
 function useVoice(lang, onFieldUpdate, onFinish) {
   const [stepIdx, setStepIdx] = useState(-1);
-  const [status,  setStatus]  = useState("idle"); // idle|speaking|listening|done|error
+  const [status,  setStatus]  = useState("idle"); // idle|speaking|listening|processing|saved|done|error
   const [errMsg,  setErrMsg]  = useState("");
 
-  const recRef       = useRef(null);
-  const doneRef      = useRef(false);
   const stoppedRef   = useRef(false);  // user pressed Stop — block all callbacks
   const collRef      = useRef({});
   const langRef      = useRef(lang);
   const onUpdateRef  = useRef(onFieldUpdate);
   const onFinishRef  = useRef(onFinish);
-  const micStreamRef = useRef(null);
-  const resumeTimer  = useRef(null); // Chrome TTS stall-kick timer
+  const micStreamRef = useRef(null);   // live mic MediaStream (kept open across steps)
   const stepIdxRef   = useRef(-1);
+  const advanceTimerRef = useRef(null); // processing→saved→advance visual pipeline
+  const audioRef      = useRef(null);   // <audio> currently playing the TTS mp3
+  const recorderRef   = useRef(null);   // active MediaRecorder for the current step
+  const chunksRef      = useRef([]);    // recorded Blob chunks for the current step
 
   useEffect(() => { langRef.current    = lang; },          [lang]);
   useEffect(() => { onUpdateRef.current = onFieldUpdate; }, [onFieldUpdate]);
@@ -321,37 +432,27 @@ function useVoice(lang, onFieldUpdate, onFinish) {
 
   const prompts = VOICE_QS[lang] || VOICE_QS["en"];
 
-  // Pick the best available TTS voice for the current language
-  // On Windows, Urdu voice is named "Microsoft Urdu" — match by name too
-  const getBestVoice = useCallback((langCode) => {
-    const voices = window.speechSynthesis.getVoices();
-    if (!voices.length) return null;
-    const lc = langCode.toLowerCase();
-    const prefix = lc.slice(0, 2); // "ur", "en", etc.
-    return (
-      voices.find(v => v.lang.toLowerCase() === lc) ||
-      voices.find(v => v.name.toLowerCase().includes(prefix === "ur" ? "urdu" : prefix)) ||
-      voices.find(v => v.lang.toLowerCase().startsWith(prefix)) ||
-      null  // return null — don't fall back to wrong language voice
-    );
+  const stopTTS = useCallback(() => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
   }, []);
 
-  const clearResumeTimer = useCallback(() => {
-    if (resumeTimer.current) { clearInterval(resumeTimer.current); resumeTimer.current = null; }
+  // Stop the active recorder without uploading anything (used by skip/killAll).
+  const discardRecording = useCallback(() => {
+    try { if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop(); } catch {}
+    recorderRef.current = null;
+    chunksRef.current = [];
   }, []);
 
   const killAll = useCallback(() => {
     stoppedRef.current = true;   // block any pending callbacks immediately
-    clearResumeTimer();
-    window.speechSynthesis?.cancel();
-    try { recRef.current?.stop(); } catch {}
-    try { recRef.current?.abort(); } catch {}
-    recRef.current = null;
+    if (advanceTimerRef.current) { clearTimeout(advanceTimerRef.current); advanceTimerRef.current = null; }
+    stopTTS();
+    discardRecording();
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach(t => t.stop());
       micStreamRef.current = null;
     }
-  }, [clearResumeTimer]);
+  }, [stopTTS, discardRecording]);
 
   const stop = useCallback(() => {
     killAll();
@@ -362,151 +463,272 @@ function useVoice(lang, onFieldUpdate, onFinish) {
     setTimeout(() => { stoppedRef.current = false; }, 100);
   }, [killAll]);
 
-  // ── listenAtStep: start SpeechRecognition for step i ─────────────────────
-  const listenAtStep = useCallback((i) => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setStatus("error"); setErrMsg("noSR"); return; }
-
+  // ── advanceFrom: shared step-advancement logic — used by submitAnswer and
+  // the manual "Skip Question" action ─────────────────────────────────────────
+  const advanceFrom = useCallback((i) => {
+    if (stoppedRef.current) return;  // user pressed Stop — don't advance
     const curLang = langRef.current;
-    const curQs   = VOICE_QS[curLang] || VOICE_QS["en"];
-    const srCode  = SR_LANG[curLang] || "en-US";
-    const total   = curQs.length;
-
-    // Abort any previous recognition
-    try { recRef.current?.abort(); } catch {}
-
-    const rec = new SR();
-    recRef.current      = rec;
-    rec.lang            = srCode;
-    rec.continuous      = false;
-    rec.interimResults  = false;
-    rec.maxAlternatives = 1;
-    doneRef.current     = false;
-
-    const advance = () => {
-      if (stoppedRef.current) return;  // user pressed Stop — don't advance
-      const next = i + 1;
-      if (next >= total) {
-        killAll();
-        setStatus("done");
-        onFinishRef.current({ ...collRef.current });
-        setStepIdx(-1); stepIdxRef.current = -1;
-      } else {
-        setStepIdx(next); stepIdxRef.current = next;
-      }
-    };
-
-    rec.onresult = e => {
-      if (doneRef.current) return;
-      doneRef.current = true;
-      const val = e.results[0]?.[0]?.transcript?.trim() || "";
-      collRef.current[VOICE_FIELDS[i]] = val;
-      onUpdateRef.current(VOICE_FIELDS[i], val);
-      advance();
-    };
-
-    rec.onerror = e => {
-      if (doneRef.current) return;
-      doneRef.current = true;
-      if (e.error === "no-speech")                             advance();
-      else if (e.error === "not-allowed" || e.error === "audio-capture")
-        { setStatus("error"); setErrMsg("micDenied"); }
-      else { setStatus("error"); setErrMsg(`Mic error: ${e.error}`); }
-    };
-
-    rec.onend = () => {
-      if (doneRef.current) return;
-      doneRef.current = true;
-      advance();
-    };
-
-    setStatus("listening");
-    try { rec.start(); }
-    catch (e) { setStatus("error"); setErrMsg(`Mic start failed: ${e.message}`); }
+    const total   = (VOICE_QS[curLang] || VOICE_QS["en"]).length;
+    const next    = i + 1;
+    if (next >= total) {
+      killAll();
+      setStatus("done");
+      onFinishRef.current({ ...collRef.current });
+      setStepIdx(-1); stepIdxRef.current = -1;
+    } else {
+      setStepIdx(next); stepIdxRef.current = next;
+    }
   }, [killAll]);
 
-  // ── speakThenListen: TTS speaks question, then recognition starts ─────────
-  const speakThenListen = useCallback((i) => {
-    clearResumeTimer();
-    window.speechSynthesis.cancel();
+  // Holds the latest startRecording so it can be re-armed without a
+  // self-reference before its own declaration completes.
+  const startRecordingRef = useRef(null);
 
+  // ── startRecording: arm a MediaRecorder for the current step. Recording just
+  // runs continuously — no live transcript, no auto-advance — until the EMT
+  // taps "Submit Answer" or "Skip Question" (both read stepIdxRef themselves,
+  // so this needs no step-index argument) ─────────────────────────────────────
+  const startRecording = useCallback(async () => {
+    if (stoppedRef.current) return;
+    try {
+      // Release any previous stream and request a completely fresh one for
+      // this recording — guarantees live, unmuted tracks every time rather
+      // than reusing tracks that may have gone stale after a prior
+      // MediaRecorder session on the same stream.
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop());
+        micStreamRef.current = null;
+      }
+      micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (stoppedRef.current) return; // Stop pressed while awaiting permission
+
+      const rec = new MediaRecorder(micStreamRef.current);
+      chunksRef.current = [];
+      rec.ondataavailable = e => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onerror = e => {
+        console.warn(`MediaRecorder error: ${e.error?.message || e.error}`);
+        setStatus("error"); setErrMsg("micDenied");
+      };
+      recorderRef.current = rec;
+      rec.start();
+      setStatus("listening");
+    } catch {
+      setStatus("error"); setErrMsg("micDenied");
+    }
+  }, []);
+
+  useEffect(() => { startRecordingRef.current = startRecording; }, [startRecording]);
+
+  // Holds the latest tryWebSpeechFallback so finalizeTranscript can escalate
+  // to it without a circular useCallback dependency (the two reference each
+  // other: cloud filler → fallback; fallback filler → give up).
+  const tryWebSpeechFallbackRef = useRef(null);
+
+  // ── finalizeTranscript: shared by the cloud (Groq) path and the browser
+  // fallback path below — filter hallucinations, parse for the target field,
+  // write to state, THEN advance. This is the ONLY place either path may
+  // advance the step, and a step is ONLY advanced once a real, non-filler
+  // transcript has actually been written.
+  //
+  // Groq returns a confident HTTP 200 even when it hallucinated "you" on
+  // silence — that's not a fetch failure, so a filler/empty result from the
+  // CLOUD path is treated as a pipeline failure and escalates straight to
+  // the browser fallback instead of retrying the same failing cloud call.
+  // A filler/empty result from the FALLBACK path itself means both routes
+  // failed — stop there, no more retries, leave the step for manual entry.
+  const finalizeTranscript = useCallback((fieldKey, i, rawTranscript, isFallbackAttempt = false) => {
+    if (isVoiceFiller(rawTranscript)) {
+      if (!isFallbackAttempt) {
+        console.warn(`Voice: cloud transcript for "${fieldKey}" on step ${i} rejected as filler/empty: "${rawTranscript}" — escalating to browser fallback`);
+        tryWebSpeechFallbackRef.current?.(fieldKey, i);
+        return;
+      }
+      console.warn(`Voice: browser fallback transcript for "${fieldKey}" on step ${i} ALSO rejected as filler/empty: "${rawTranscript}" — both routes failed`);
+      setErrMsg("No clear speech detected on cloud or local fallback — type this field manually or tap Skip Question.");
+      setStatus("error");
+      return;
+    }
+    const parsedValue = parseVoiceField(fieldKey, rawTranscript);
+    collRef.current[fieldKey] = parsedValue;
+    onUpdateRef.current(fieldKey, parsedValue);
+
+    setStatus("saved");
+    advanceTimerRef.current = setTimeout(() => {
+      if (!stoppedRef.current) advanceFrom(i);
+    }, 650);
+  }, [advanceFrom]);
+
+  // ── tryWebSpeechFallback: cloud STT failed (network/HTTP error) or
+  // hallucinated a filler transcript — fall back to the browser's own
+  // SpeechRecognition. A valid result runs through the SAME field parsers
+  // and advances via finalizeTranscript; if the fallback ALSO can't detect
+  // speech, the step holds (see finalizeTranscript / onerror / onend below)
+  // instead of looping forever.
+  const tryWebSpeechFallback = useCallback((fieldKey, i) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      console.warn(`Voice: no browser SpeechRecognition available for fallback on "${fieldKey}"`);
+      setErrMsg("Cloud STT failed and this browser has no local fallback — type this field manually or tap Skip Question.");
+      setStatus("error");
+      return;
+    }
+
+    const rec = new SR();
+    rec.lang            = "en-US"; // last-resort fallback: transcription only, no translation
+    rec.continuous       = false;
+    rec.interimResults   = false;
+    rec.maxAlternatives  = 1;
+
+    let handled = false;
+    rec.onresult = e => {
+      if (handled) return;
+      handled = true;
+      finalizeTranscript(fieldKey, i, e.results[0]?.[0]?.transcript?.trim() || "", true);
+    };
+    rec.onerror = () => {
+      if (handled) return;
+      handled = true;
+      console.warn(`Voice: browser fallback SpeechRecognition errored for "${fieldKey}" — both routes failed`);
+      setErrMsg("Cloud STT and local fallback both failed — type this field manually or tap Skip Question.");
+      setStatus("error");
+    };
+    rec.onend = () => {
+      if (handled) return;
+      handled = true;
+      console.warn(`Voice: no speech detected by browser fallback for "${fieldKey}" — both routes failed`);
+      setErrMsg("No speech detected — type this field manually or tap Skip Question.");
+      setStatus("error");
+    };
+
+    console.warn(`Voice: cloud STT failed/hallucinated for "${fieldKey}" — trying browser SpeechRecognition fallback`);
+    try { rec.start(); }
+    catch { setErrMsg("micDenied"); setStatus("error"); }
+  }, [finalizeTranscript]);
+
+  useEffect(() => { tryWebSpeechFallbackRef.current = tryWebSpeechFallback; }, [tryWebSpeechFallback]);
+
+  // ── submitAnswer: EMT is done speaking — ONLY stops the recorder here.
+  // Everything else (assembling the blob, uploading, parsing, advancing)
+  // happens inside rec.onstop, which the browser guarantees fires strictly
+  // after the final ondataavailable chunk has already landed in chunksRef —
+  // there is no path where the upload can fire on a still-assembling blob.
+  const submitAnswer = useCallback(() => {
+    const i = stepIdxRef.current;
+    const rec = recorderRef.current;
+    if (stoppedRef.current || i < 0 || !rec || rec.state === "inactive") return;
+
+    setStatus("processing");
+    rec.onstop = async () => {
+      recorderRef.current = null;
+      // 1. Assemble the blob from chunksRef (already complete — see note above).
+      const audioBlob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+      // 2. Clear the chunks array for the next step.
+      chunksRef.current = [];
+
+      const fieldKey = VOICE_FIELDS[i];
+
+      if (audioBlob.size === 0) {
+        // Nothing captured at all — MediaRecorder itself produced no audio,
+        // so retrying the same recorder is unlikely to help. Escalate
+        // straight to the browser's own SpeechRecognition (separate mic
+        // capture path) instead of looping on a recorder that isn't working.
+        console.warn(`Voice: empty recording for "${fieldKey}" on step ${i} — escalating to browser fallback`);
+        tryWebSpeechFallback(fieldKey, i);
+        return;
+      }
+
+      // 3. Post to the backend.
+      try {
+        const formData = new FormData();
+        formData.append("file", audioBlob, "audio.webm");
+
+        const response = await fetch(`${BACKEND}/api/voice/stt`, {
+          method: "POST", body: formData, signal: AbortSignal.timeout(30000),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `STT HTTP ${response.status}`);
+
+        // 4. Parse response, filter hallucinations, write to state, then advance.
+        finalizeTranscript(fieldKey, i, (data.transcript || "").trim());
+      } catch (error) {
+        if (stoppedRef.current) return;
+        // 5. Cloud STT failed (network error, timeout, or Groq rejecting the
+        // request — e.g. a model blocked at the org level) — fall back to
+        // the browser's native recognizer instead of leaving the EMT stuck.
+        console.warn(`STT error (cloud): ${error.message}`);
+        tryWebSpeechFallback(fieldKey, i);
+      }
+    };
+    try { rec.stop(); } catch { rec.onstop(); }
+  }, [finalizeTranscript, tryWebSpeechFallback]);
+
+  // ── skip: manual "Skip Question" — discard the recording/TTS, advance immediately ──
+  const skip = useCallback(() => {
+    if (stoppedRef.current || stepIdxRef.current < 0) return;
+    if (advanceTimerRef.current) { clearTimeout(advanceTimerRef.current); advanceTimerRef.current = null; }
+    discardRecording();
+    stopTTS();
+    advanceFrom(stepIdxRef.current);
+  }, [advanceFrom, stopTTS, discardRecording]);
+
+  // ── speakStep: fetch TTS audio from the backend and play it, then start
+  // recording the EMT's answer once playback finishes ─────────────────────────
+  const speakStep = useCallback(async (i) => {
+    stopTTS();
     const curLang = langRef.current;
     const curQs   = VOICE_QS[curLang] || VOICE_QS["en"];
-    const srCode  = SR_LANG[curLang] || "en-US";
     if (i >= curQs.length) return;
 
     setStatus("speaking");
 
-    const doSpeak = () => {
-      const utt    = new SpeechSynthesisUtterance(curQs[i]);
-      utt.lang     = srCode;
-      utt.rate     = 0.88;
-      utt.pitch    = 1;
-      utt.volume   = 1;
+    let audioUrl = null;
+    try {
+      const resp = await fetch(`${BACKEND}/api/voice/tts`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ text: curQs[i], lang: TTS_LANG[curLang] || "en" }),
+        signal:  AbortSignal.timeout(15000),
+      });
+      if (!resp.ok) throw new Error(`TTS HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      if (stoppedRef.current) return;
 
-      // Assign best available voice for language
-      const voice = getBestVoice(srCode);
-      if (voice) utt.voice = voice;
+      audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
 
-      let done = false;
-
-      const startListening = () => {
-        if (done || stoppedRef.current) return;  // stopped → don't start listening
-        done = true;
-        clearResumeTimer();
-        // 350ms gap between TTS end and mic start — prevents Chrome audio overlap
-        setTimeout(() => { if (!stoppedRef.current) listenAtStep(i); }, 350);
+      const proceedToListening = () => {
+        if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
+        if (!stoppedRef.current) startRecordingRef.current?.();
       };
-
-      utt.onend   = startListening;
-      utt.onerror = startListening; // if TTS fails for any reason, still listen
-
-      window.speechSynthesis.speak(utt);
-
-      // Chrome TTS bug: speechSynthesis.speaking can stall silently on localhost.
-      // Fix: kick resume() every 2s. Also hard-timeout at 10s → skip to listen.
-      resumeTimer.current = setInterval(() => {
-        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-      }, 2000);
-
-      setTimeout(() => {
-        if (!done) {
-          clearResumeTimer();
-          window.speechSynthesis.cancel();
-          startListening();
-        }
-      }, 10000); // 10s max for any question TTS
-    };
-
-    // Chrome requires a tiny pause after .cancel() before .speak() works
-    setTimeout(doSpeak, 150);
-  }, [clearResumeTimer, getBestVoice, listenAtStep]);
+      audio.onended = proceedToListening;
+      audio.onerror = proceedToListening;
+      await audio.play();
+    } catch {
+      if (audioUrl) { URL.revokeObjectURL(audioUrl); }
+      // TTS unavailable — still let the EMT answer the (silently skipped) question
+      if (!stoppedRef.current) startRecordingRef.current?.();
+    }
+  }, [stopTTS]);
 
   // Drive the interview: each stepIdx change triggers speak+listen
   useEffect(() => {
-    if (stepIdx >= 0) speakThenListen(stepIdx);
+    if (stepIdx >= 0) speakStep(stepIdx);
   }, [stepIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = useCallback(() => {
-    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+    if (!window.MediaRecorder) {
       setStatus("error"); setErrMsg("noSR"); return;
     }
-    // Get mic permission first — keeps stream alive so Chrome doesn't re-block
+    // Get mic permission first — keeps stream alive so the browser doesn't
+    // re-prompt on every question.
     stoppedRef.current = false;  // clear stop flag for new session
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
         micStreamRef.current = stream;
         collRef.current = {};
         setErrMsg("");
-        setStatus("idle");
-        // Wait for voices to load (Chrome loads them async)
-        const kick = () => { setStepIdx(0); stepIdxRef.current = 0; };
-        if (window.speechSynthesis.getVoices().length > 0) {
-          setTimeout(kick, 150);
-        } else {
-          window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; setTimeout(kick, 150); };
-          setTimeout(kick, 800); // fallback if onvoiceschanged never fires
-        }
+        setStepIdx(0); stepIdxRef.current = 0;
       })
       .catch(() => { setStatus("error"); setErrMsg("micDenied"); });
   }, []);
@@ -514,56 +736,177 @@ function useVoice(lang, onFieldUpdate, onFinish) {
   return {
     status, errMsg, stepIdx,
     totalSteps:    prompts.length,
-    isActive:      stepIdx >= 0 && status !== "done" && status !== "error",
+    // "error" deliberately stays active — that's the stuck-on-step state
+    // where the EMT needs the progress card (and its Skip Question button)
+    // to still be visible, not hidden the moment both STT routes fail.
+    isActive:      stepIdx >= 0 && status !== "done",
     currentPrompt: stepIdx >= 0 && stepIdx < prompts.length ? prompts[stepIdx] : "",
-    start, stop,
+    start, stop, skip, submitAnswer,
   };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FIX 2 — LEAFLET MAP (OpenStreetMap, no API key)
+// LEAFLET MAP — shows incident location + all hospitals + OSRM route
 // ═══════════════════════════════════════════════════════════════════════════
+async function loadLeaflet() {
+  if (window.L) return window.L;
+  if (!document.getElementById("leaflet-css")) {
+    const link = document.createElement("link");
+    link.id = "leaflet-css"; link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+  }
+  if (!window._leafletLoading) {
+    window._leafletLoading = new Promise(res => {
+      const s = document.createElement("script");
+      s.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      s.onload = res; document.head.appendChild(s);
+    });
+  }
+  await window._leafletLoading;
+  return window.L;
+}
+
+// Single hospital marker map (used in result panel)
 function LeafletMap({ lat, lng, name }) {
   const containerId = useRef(`lmap-${Math.random().toString(36).slice(2)}`);
   const mapRef      = useRef(null);
 
   useEffect(() => {
     if (!lat || !lng) return;
-
     const init = async () => {
-      // Load Leaflet if not already loaded
-      if (!window.L) {
-        if (!document.getElementById("leaflet-css")) {
-          const link = document.createElement("link");
-          link.id = "leaflet-css"; link.rel = "stylesheet";
-          link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-          document.head.appendChild(link);
-        }
-        await new Promise(res => {
-          const s = document.createElement("script");
-          s.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-          s.onload = res; document.head.appendChild(s);
-        });
-      }
+      const L  = await loadLeaflet();
       const el = document.getElementById(containerId.current);
       if (!el || mapRef.current) return;
-      const L   = window.L;
       const map = L.map(el, { zoomControl:true, scrollWheelZoom:false }).setView([lat, lng], 15);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors",
-        maxZoom: 19,
+        attribution: "© OpenStreetMap contributors", maxZoom: 19,
       }).addTo(map);
       L.marker([lat, lng]).addTo(map).bindPopup(`<b>${name || "Hospital"}</b>`).openPopup();
       mapRef.current = map;
     };
-
     init().catch(console.error);
-    return () => {
-      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
-    };
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
   }, [lat, lng, name]);
 
   return <div id={containerId.current} style={{ width:"100%", height:200 }} />;
+}
+
+// Full emergency map: incident marker + hospital markers + route
+function EmergencyMap({ incidentLat, incidentLng, incidentLabel, hospitals, triageColor: tColor }) {
+  const containerId = useRef(`emap-${Math.random().toString(36).slice(2)}`);
+  const mapRef      = useRef(null);
+  const routeRef    = useRef(null);
+
+  // Serialize hospitals to a string key to detect changes
+  const hospitalsKey = hospitals.map(h => `${h.lat},${h.lng}`).join("|");
+
+  useEffect(() => {
+    const hasIncident  = incidentLat && incidentLng && Math.abs(incidentLat) > 0.1 && Math.abs(incidentLng) > 0.1;
+    const hasHospitals = hospitals && hospitals.length > 0;
+    if (!hasIncident && !hasHospitals) return;
+
+    const init = async () => {
+      const L = await loadLeaflet();
+      const el = document.getElementById(containerId.current);
+      if (!el) return;
+
+      // Destroy old map instance if it exists
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; routeRef.current = null; }
+
+      // Determine map center — incident location preferred
+      const centerLat = hasIncident ? incidentLat : hospitals[0].lat;
+      const centerLng = hasIncident ? incidentLng : hospitals[0].lng;
+      const zoom      = hasIncident && hasHospitals ? 13 : 14;
+
+      const map = L.map(el, { zoomControl: true, scrollWheelZoom: true }).setView([centerLat, centerLng], zoom);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors", maxZoom: 19,
+      }).addTo(map);
+
+      const bounds = [];
+
+      // ── Incident location marker (red pin) ────────────────────────────────
+      if (hasIncident) {
+        const incIcon = L.divIcon({
+          className: "",
+          html: `<div style="width:16px;height:16px;border-radius:50%;background:${tColor || "#ef4444"};border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>`,
+          iconSize: [16, 16], iconAnchor: [8, 8],
+        });
+        L.marker([incidentLat, incidentLng], { icon: incIcon })
+          .addTo(map)
+          .bindPopup(`<b>🚨 Incident</b><br/>${incidentLabel || "Emergency Location"}`);
+        bounds.push([incidentLat, incidentLng]);
+      }
+
+      // ── Hospital markers ──────────────────────────────────────────────────
+      hospitals.forEach((h, i) => {
+        if (!h.lat || !h.lng) return;
+        const isNearest = i === 0;
+        const bgColor   = isNearest ? "#3b82f6" : "#6b7280";
+        const hIcon = L.divIcon({
+          className: "",
+          html: `<div style="width:${isNearest?20:14}px;height:${isNearest?20:14}px;border-radius:4px;background:${bgColor};border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:white;font-size:${isNearest?10:8}px;font-weight:900">H</div>`,
+          iconSize: [isNearest ? 20 : 14, isNearest ? 20 : 14],
+          iconAnchor: [isNearest ? 10 : 7, isNearest ? 10 : 7],
+        });
+        const popup = `<b>${i === 0 ? "🏥 Nearest: " : ""} ${h.name}</b><br/>📍 ${h.dist_km} km away${h.phone && h.phone !== "N/A" ? `<br/>📞 ${h.phone}` : ""}${h.address ? `<br/>${h.address}` : ""}`;
+        L.marker([h.lat, h.lng], { icon: hIcon }).addTo(map).bindPopup(popup);
+        bounds.push([h.lat, h.lng]);
+      });
+
+      // Fit map to show all markers
+      if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+      }
+
+      // ── OSRM Route: incident → nearest hospital ───────────────────────────
+      if (hasIncident && hasHospitals) {
+        const h0 = hospitals[0];
+        const routeColor = tColor || "#3b82f6";
+        try {
+          const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${incidentLng},${incidentLat};${h0.lng},${h0.lat}?overview=full&geometries=geojson&steps=false`;
+          const resp = await fetch(osrmUrl, { signal: AbortSignal.timeout(8000) });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.routes && data.routes[0]) {
+              const route    = data.routes[0];
+              const coords   = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+              const distKm   = (route.distance / 1000).toFixed(1);
+              const timeMins = Math.round(route.duration / 60);
+              // Draw route polyline
+              const poly = L.polyline(coords, {
+                color: routeColor, weight: 4, opacity: 0.85,
+                dashArray: null,
+              }).addTo(map);
+              // Route info popup at midpoint
+              const mid = coords[Math.floor(coords.length / 2)];
+              L.popup({ closeButton: false, className: "route-popup" })
+                .setLatLng(mid)
+                .setContent(`<div style="font-weight:800;font-size:12px">🚑 Route: ${distKm} km · ~${timeMins} min</div>`)
+                .openOn(map);
+              routeRef.current = poly;
+            }
+          }
+        } catch (e) {
+          console.warn("OSRM routing failed:", e.message);
+          // Fallback: draw a straight dashed line
+          const fallbackLine = L.polyline([[incidentLat, incidentLng], [h0.lat, h0.lng]], {
+            color: routeColor, weight: 3, opacity: 0.6, dashArray: "8 6",
+          }).addTo(map);
+          routeRef.current = fallbackLine;
+        }
+      }
+
+      mapRef.current = map;
+    };
+
+    init().catch(console.error);
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; routeRef.current = null; } };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incidentLat, incidentLng, hospitalsKey, tColor]);
+
+  return <div id={containerId.current} style={{ width: "100%", height: 320, borderRadius: 12, overflow: "hidden" }} />;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -576,6 +919,8 @@ function CNICModal({ onClose, onSuccess, darkMode, tx }) {
   const [err,        setErr]        = useState("");
   const [scanMethod, setScanMethod] = useState("auto"); // "auto"|"local"|"groq"
   const [usedMethod, setUsedMethod] = useState("");
+  const [loadingMsg, setLoadingMsg] = useState("");    // dynamic loading status text
+
   const fileRef   = useRef(null);
   const vidRef    = useRef(null);
   const streamRef = useRef(null);
@@ -599,15 +944,44 @@ function CNICModal({ onClose, onSuccess, darkMode, tx }) {
         r.onload=e=>res(e.target.result.split(",")[1]);
         r.readAsDataURL(file);
       });
+
+      // For local/auto: check if EasyOCR model is ready, wait if still loading
+      if (scanMethod === "local" || scanMethod === "auto") {
+        try {
+          const statusResp = await fetch(`${BACKEND}/cnic/status`, { signal: AbortSignal.timeout(3000) });
+          if (statusResp.ok) {
+            const status = await statusResp.json();
+            if (status.loading && !status.ready) {
+              setLoadingMsg("Loading OCR model... (first time, ~30s)");
+              // Poll until ready or timeout
+              let waited = 0;
+              while (waited < 90) {
+                await new Promise(r => setTimeout(r, 2000));
+                waited += 2;
+                try {
+                  const s2 = await fetch(`${BACKEND}/cnic/status`, { signal: AbortSignal.timeout(2000) });
+                  if (s2.ok) {
+                    const st2 = await s2.json();
+                    if (st2.ready) break;
+                    setLoadingMsg(`Loading OCR model... ${waited}s`);
+                  }
+                } catch { break; }
+              }
+              setLoadingMsg("");
+            }
+          }
+        } catch { /* status check failed, proceed anyway */ }
+      }
+
       // scan_method is enforced by BACKEND:
-      //  "local" → EasyOCR only, Groq API is NEVER called
-      //  "groq"  → Groq Vision only
-      //  "auto"  → EasyOCR → Groq fallback
+      //  "local" -> local OCR only (EasyOCR -> Pytesseract fallback), NEVER calls Groq
+      //  "groq"  -> Groq Vision only (cloud, highest accuracy)
+      //  "auto"  -> local OCR first; if CNIC found -> return offline; else fall back to Groq
       const resp = await fetch(`${BACKEND}/cnic/scan`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({image_base64:b64,media_type:file.type||"image/jpeg",scan_method:scanMethod}),
-        signal:AbortSignal.timeout(50000),
+        signal:AbortSignal.timeout(120000), // 120s — EasyOCR inference can take 10-20s
       });
       if(!resp.ok){const e2=await resp.json().catch(()=>({}));throw new Error(e2.detail||`Error ${resp.status}`);}
       const json=await resp.json();
@@ -694,6 +1068,7 @@ function CNICModal({ onClose, onSuccess, darkMode, tx }) {
             {prev&&<img src={prev} alt="" style={{ width:"100%", borderRadius:10, marginBottom:16, maxHeight:180, objectFit:"cover" }}/>}
             <div style={{ width:40, height:40, borderRadius:"50%", border:"3px solid rgba(99,102,241,0.2)", borderTop:"3px solid #6366f1", animation:"spin 1s linear infinite", margin:"0 auto 14px" }}/>
             <div style={{ fontSize:13, opacity:0.6 }}>{tx.reading}</div>
+            {scanMethod==="local" && <div style={{ fontSize:10, opacity:0.4, marginTop:6 }}>First scan may take ~30s to load OCR model</div>}
           </div>
         )}
 
@@ -800,202 +1175,27 @@ function VitalsChart({ history, darkMode }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GOOGLE TRANSLATE WIDGET — proper implementation, no feedback bar
+// HOSPITAL PANEL — triage-aware, with GPS denied guide + location fallback
 // ═══════════════════════════════════════════════════════════════════════════
-const GT_LANGS = [
-  ["af","Afrikaans"],["sq","Albanian"],["am","Amharic"],["ar","Arabic"],
-  ["hy","Armenian"],["az","Azerbaijani"],["eu","Basque"],["be","Belarusian"],
-  ["bn","Bengali"],["bs","Bosnian"],["bg","Bulgarian"],["ca","Catalan"],
-  ["ceb","Cebuano"],["ny","Chichewa"],["zh-CN","Chinese (Simplified)"],
-  ["zh-TW","Chinese (Traditional)"],["co","Corsican"],["hr","Croatian"],
-  ["cs","Czech"],["da","Danish"],["nl","Dutch"],["en","English"],
-  ["eo","Esperanto"],["et","Estonian"],["tl","Filipino"],["fi","Finnish"],
-  ["fr","French"],["fy","Frisian"],["gl","Galician"],["ka","Georgian"],
-  ["de","German"],["el","Greek"],["gu","Gujarati"],["ht","Haitian Creole"],
-  ["ha","Hausa"],["haw","Hawaiian"],["iw","Hebrew"],["hi","Hindi"],
-  ["hmn","Hmong"],["hu","Hungarian"],["is","Icelandic"],["ig","Igbo"],
-  ["id","Indonesian"],["ga","Irish"],["it","Italian"],["ja","Japanese"],
-  ["jw","Javanese"],["kn","Kannada"],["kk","Kazakh"],["km","Khmer"],
-  ["ko","Korean"],["ku","Kurdish"],["ky","Kyrgyz"],["lo","Lao"],
-  ["la","Latin"],["lv","Latvian"],["lt","Lithuanian"],["lb","Luxembourgish"],
-  ["mk","Macedonian"],["mg","Malagasy"],["ms","Malay"],["ml","Malayalam"],
-  ["mt","Maltese"],["mi","Maori"],["mr","Marathi"],["mn","Mongolian"],
-  ["my","Myanmar (Burmese)"],["ne","Nepali"],["no","Norwegian"],
-  ["ps","Pashto"],["fa","Persian"],["pl","Polish"],["pt","Portuguese"],
-  ["pa","Punjabi"],["ro","Romanian"],["ru","Russian"],["sm","Samoan"],
-  ["gd","Scots Gaelic"],["sr","Serbian"],["st","Sesotho"],["sn","Shona"],
-  ["sd","Sindhi"],["si","Sinhala"],["sk","Slovak"],["sl","Slovenian"],
-  ["so","Somali"],["es","Spanish"],["su","Sundanese"],["sw","Swahili"],
-  ["sv","Swedish"],["tg","Tajik"],["ta","Tamil"],["te","Telugu"],
-  ["th","Thai"],["tr","Turkish"],["uk","Ukrainian"],["ur","Urdu"],
-  ["uz","Uzbek"],["vi","Vietnamese"],["cy","Welsh"],["xh","Xhosa"],
-  ["yi","Yiddish"],["yo","Yoruba"],["zu","Zulu"],
-];
-
-function GTWidget({ dark, C }) {
-  const [open,   setOpen]   = useState(false);
-  const [search, setSearch] = useState("");
-  const [active, setActive] = useState("");
-  const wrapRef = useRef(null);
-
-  // Load Google Translate script once
-  useEffect(() => {
-    if (window.__gtScriptLoaded) return;
-    window.__gtScriptLoaded = true;
-    // Suppress the translate toolbar/badge
-    const style = document.createElement("style");
-    style.textContent = `
-      .goog-te-banner-frame, .goog-te-balloon-frame { display:none!important; }
-      body { top:0!important; }
-      .goog-te-gadget-icon, .goog-logo-link { display:none!important; }
-      .goog-te-gadget { font-size:0!important; }
-      .goog-te-combo { display:none!important; }
-      #google_translate_element { display:none!important; }
-    `;
-    document.head.appendChild(style);
-
-    window.googleTranslateElementInit = function() {
-      try {
-        new window.google.translate.TranslateElement(
-          { pageLanguage:"en", autoDisplay:false },
-          "google_translate_element"
-        );
-      } catch(e) { console.warn("GT init:", e); }
-    };
-    const s = document.createElement("script");
-    s.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
-    s.async = true;
-    document.head.appendChild(s);
-  }, []);
-
-  // Close on outside click
-  useEffect(() => {
-    const handler = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  function applyLang(code, name) {
-    setActive(name);
-    setOpen(false);
-    setSearch("");
-    // Use Google Translate cookie approach — most reliable method
-    if (code === "en") {
-      // Reset to English: clear cookie and reload
-      document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-      document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + location.hostname;
-      window.location.reload();
-      return;
-    }
-    // Set cookie for Google Translate
-    const val = `/en/${code}`;
-    document.cookie = `googtrans=${val}; path=/`;
-    document.cookie = `googtrans=${val}; path=/; domain=${location.hostname}`;
-    // Trigger translation via the hidden select element
-    const tryTranslate = () => {
-      const sel = document.querySelector(".goog-te-combo");
-      if (sel) {
-        sel.value = code;
-        sel.dispatchEvent(new Event("change"));
-        return true;
-      }
-      return false;
-    };
-    if (!tryTranslate()) {
-      // Script not loaded yet — wait and retry
-      let tries = 0;
-      const interval = setInterval(() => {
-        if (tryTranslate() || ++tries > 20) clearInterval(interval);
-      }, 250);
-    }
-  }
-
-  const filtered = search
-    ? GT_LANGS.filter(([c,n]) => n.toLowerCase().includes(search.toLowerCase()) || c.toLowerCase().includes(search.toLowerCase()))
-    : GT_LANGS;
-
-  return (
-    <div ref={wrapRef} style={{position:"relative",zIndex:500}}>
-      {/* Hidden GT element needed by the API */}
-      <div id="google_translate_element" style={{display:"none"}}/>
-
-      <button
-        onClick={()=>setOpen(o=>!o)}
-        style={{padding:"6px 11px",borderRadius:8,border:`1px solid ${dark?"#1e3a5f":"#dadce0"}`,
-          cursor:"pointer",background:dark?"#0d1b2e":"#fff",
-          color:dark?"#e2e8f0":"#3c4043",
-          display:"flex",alignItems:"center",gap:6,
-          fontWeight:700,fontSize:11,fontFamily:"inherit",
-          boxShadow:"0 1px 3px rgba(0,0,0,0.15)",
-          minWidth:90}}>
-        <svg width="13" height="13" viewBox="0 0 24 24">
-          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-        </svg>
-        {active || "Translate"}
-      </button>
-
-      {open && (
-        <div style={{position:"absolute",top:"110%",right:0,
-          background:dark?"#0a1628":"#fff",
-          border:`1px solid ${dark?"#1e3a5f":"#e2e8f0"}`,
-          borderRadius:13,boxShadow:"0 12px 40px rgba(0,0,0,0.35)",
-          width:230,maxHeight:380,display:"flex",flexDirection:"column",
-          overflow:"hidden",zIndex:600}}>
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${dark?"#1e3a5f":"#f0f0f0"}`}}>
-            <div style={{fontSize:8,letterSpacing:"2px",opacity:0.4,marginBottom:7}}>TRANSLATE PAGE</div>
-            <input
-              autoFocus
-              value={search}
-              onChange={e=>setSearch(e.target.value)}
-              placeholder="Search language…"
-              style={{width:"100%",background:dark?"rgba(255,255,255,0.05)":"#f5f5f5",
-                border:"none",borderRadius:7,padding:"7px 10px",
-                color:dark?"#e2e8f0":"#1e293b",fontSize:12,outline:"none",
-                fontFamily:"inherit"}}
-            />
-          </div>
-          <div style={{overflowY:"auto",flex:1}}>
-            {/* English reset option */}
-            <div onClick={()=>applyLang("en","English")}
-              style={{padding:"9px 14px",cursor:"pointer",fontSize:12,
-                fontWeight:active===""||active==="English"?700:400,
-                color:active===""||active==="English"?"#3b82f6":dark?"#e2e8f0":"#1e293b",
-                background:active===""||active==="English"?"rgba(59,130,246,0.08)":"transparent",
-                transition:"background 0.1s",
-                borderBottom:`1px solid ${dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.04)"}`}}
-              onMouseEnter={e=>e.currentTarget.style.background=dark?"rgba(255,255,255,0.07)":"#f5f7ff"}
-              onMouseLeave={e=>e.currentTarget.style.background=active===""||active==="English"?"rgba(59,130,246,0.08)":"transparent"}>
-              🔄 Reset to English
-            </div>
-            {filtered.filter(([c])=>c!=="en").map(([code, name]) => (
-              <div key={code} onClick={()=>applyLang(code, name)}
-                style={{padding:"8px 14px",cursor:"pointer",fontSize:12,
-                  fontWeight:active===name?700:400,
-                  color:active===name?"#3b82f6":dark?"#e2e8f0":"#1e293b",
-                  background:active===name?"rgba(59,130,246,0.08)":"transparent",
-                  transition:"background 0.1s"}}
-                onMouseEnter={e=>e.currentTarget.style.background=dark?"rgba(255,255,255,0.05)":"#f5f7ff"}
-                onMouseLeave={e=>e.currentTarget.style.background=active===name?"rgba(59,130,246,0.08)":"transparent"}>
-                {name}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// FIX 2 — HOSPITAL PANEL with GPS denied guide + location-name fallback
-// ═══════════════════════════════════════════════════════════════════════════
-function HospitalPanel({ hospitals, loading, error, onRefresh, onSearchByLoc, darkMode, tx }) {
+function HospitalPanel({ hospitals, loading, error, onRefresh, onSearchByLoc, darkMode, tx, triageLevel }) {
   const bd = darkMode?"#1e3a5f":"#e2e8f0";
   const sb = darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.03)";
   const tc = darkMode?"#e2e8f0":"#1e293b";
+
+  // Triage level is pre-extracted by the parent (from the parsed AI response)
+  const triageLvl = (triageLevel || "").toLowerCase();
+  const isCritical = triageLvl && (triageLvl.includes("red") || triageLvl.includes("critical"));
+  const isUrgent   = triageLvl && (triageLvl.includes("yellow") || triageLvl.includes("urgent"));
+
+  // Sort: if critical triage, put ER hospitals first
+  const sortedHospitals = isCritical
+    ? [...hospitals].sort((a, b) => {
+        const aER = a.emergency ? 0 : 1;
+        const bER = b.emergency ? 0 : 1;
+        if (aER !== bER) return aER - bER;
+        return a.dist_km - b.dist_km;
+      })
+    : hospitals;
 
   if (loading) return (
     <div style={{ padding:"28px 0", textAlign:"center", opacity:0.5, fontSize:13, display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
@@ -1004,7 +1204,7 @@ function HospitalPanel({ hospitals, loading, error, onRefresh, onSearchByLoc, da
     </div>
   );
 
-  if (error) return (
+  if (error === "gps") return (
     <div style={{ display:"flex", flexDirection:"column", gap:10, direction:"ltr" }}>
       {/* GPS denied — step by step guide */}
       <div style={{ background:"rgba(239,68,68,0.07)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:12, padding:"14px 16px", fontSize:12, color:"#f87171", lineHeight:1.8 }}>
@@ -1033,44 +1233,77 @@ function HospitalPanel({ hospitals, loading, error, onRefresh, onSearchByLoc, da
     </div>
   );
 
-  if (!hospitals.length) return (
-    <div style={{ padding:"26px 0", textAlign:"center", opacity:0.4, fontSize:13 }}>
-      Click <strong>{tx.refreshGPS}</strong> to find hospitals near you
+  if (error && error !== "gps") return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10, direction:"ltr" }}>
+      <div style={{ background:"rgba(245,158,11,0.07)", border:"1px solid rgba(245,158,11,0.3)", borderRadius:12, padding:"12px 14px", fontSize:12, color:"#fbbf24" }}>
+        ⚠ {error}
+      </div>
+      <div style={{ background:"rgba(99,102,241,0.07)", border:"1px solid rgba(99,102,241,0.35)", borderRadius:12, padding:"14px 16px" }}>
+        <div style={{ fontSize:12, fontWeight:800, color:"#818cf8", marginBottom:6 }}>{tx.gpsAltTitle}</div>
+        <div style={{ fontSize:11, opacity:0.65, marginBottom:10 }}>{tx.gpsAltMsg}</div>
+        <button onClick={onSearchByLoc} style={{ padding:"11px 16px", borderRadius:10, background:"#6366f1", color:"white", border:"none", cursor:"pointer", fontWeight:800, fontSize:13, width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8, fontFamily:"inherit" }}>
+          <MapPin size={14}/> {tx.gpsSearchBtn}
+        </button>
+      </div>
     </div>
   );
 
+  if (!sortedHospitals.length) return (
+    <div style={{ padding:"26px 0", textAlign:"center", opacity:0.4, fontSize:13 }}>
+      Click <strong>{tx.refreshGPS}</strong> or type a location to find hospitals
+    </div>
+  );
+
+  // Triage recommendation banner
+  const triageBanner = isCritical ? (
+    <div style={{ background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.4)", borderRadius:10, padding:"10px 14px", fontSize:11, color:"#f87171", display:"flex", gap:8, alignItems:"center" }}>
+      <span style={{ fontSize:16 }}>🚨</span>
+      <span><strong>CRITICAL:</strong> Prioritizing hospitals with Emergency Room capacity. Proceed to nearest ER immediately.</span>
+    </div>
+  ) : isUrgent ? (
+    <div style={{ background:"rgba(245,158,11,0.1)", border:"1px solid rgba(245,158,11,0.4)", borderRadius:10, padding:"10px 14px", fontSize:11, color:"#fbbf24", display:"flex", gap:8, alignItems:"center" }}>
+      <span style={{ fontSize:16 }}>⚠️</span>
+      <span><strong>URGENT:</strong> Transport to nearest hospital. Time-sensitive — avoid delays.</span>
+    </div>
+  ) : null;
+
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:10, direction:"ltr" }}>
-      {hospitals.map((h, i) => (
-        <div key={i} style={{ border:`1px solid ${i===0?"#ef4444":bd}`, borderRadius:14, overflow:"hidden", background:i===0?"rgba(239,68,68,0.04)":sb }}>
-          <div style={{ padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:4 }}>
-                {i===0 && <span style={{ background:"#ef4444", color:"white", fontSize:9, padding:"2px 7px", borderRadius:4, fontWeight:800 }}>{tx.nearest}</span>}
-                {h.emergency && <span style={{ background:"#f59e0b", color:"white", fontSize:9, padding:"2px 7px", borderRadius:4, fontWeight:800 }}>ER</span>}
-                <span style={{ background:sb, color:tc, fontSize:9, padding:"2px 7px", borderRadius:4, border:`1px solid ${bd}`, opacity:0.7 }}>{h.type||"hospital"}</span>
+      {triageBanner}
+      {sortedHospitals.map((h, i) => {
+        const isNearest  = i === 0;
+        const borderCol  = isNearest ? (isCritical ? "#ef4444" : "#3b82f6") : bd;
+        const bgCol      = isNearest ? (isCritical ? "rgba(239,68,68,0.06)" : "rgba(59,130,246,0.06)") : sb;
+        // Navigation URL: destination coords
+        const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}&travelmode=driving`;
+        return (
+          <div key={i} style={{ border:`1px solid ${borderCol}`, borderRadius:14, overflow:"hidden", background:bgCol }}>
+            <div style={{ padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:4 }}>
+                  {isNearest && <span style={{ background: isCritical ? "#ef4444" : "#3b82f6", color:"white", fontSize:9, padding:"2px 7px", borderRadius:4, fontWeight:800 }}>{tx.nearest}</span>}
+                  {h.emergency && <span style={{ background:"#f59e0b", color:"white", fontSize:9, padding:"2px 7px", borderRadius:4, fontWeight:800 }}>ER</span>}
+                  <span style={{ background:sb, color:tc, fontSize:9, padding:"2px 7px", borderRadius:4, border:`1px solid ${bd}`, opacity:0.7 }}>{h.type||"hospital"}</span>
+                  {isCritical && h.emergency && <span style={{ background:"rgba(239,68,68,0.2)", color:"#f87171", fontSize:9, padding:"2px 7px", borderRadius:4, fontWeight:800 }}>✓ Has ER</span>}
+                </div>
+                <div style={{ fontWeight:800, fontSize:13, color:tc, lineHeight:1.3 }}>{h.name}</div>
+                {h.name_ur && <div style={{ fontSize:12, opacity:0.6, direction:"rtl", marginTop:2 }}>{h.name_ur}</div>}
+                <div style={{ fontSize:11, opacity:0.5, marginTop:4 }}>📍 {h.dist_km} km away{h.address?` • ${h.address}`:""}</div>
+                {h.phone && h.phone!=="N/A" && (
+                  <a href={`tel:${h.phone}`} style={{ fontSize:11, color:"#22c55e", display:"inline-flex", alignItems:"center", gap:4, marginTop:5, textDecoration:"none" }}>
+                    <PhoneCall size={11}/> {h.phone}
+                  </a>
+                )}
+                {h.opening_hours && <div style={{ fontSize:10, opacity:0.4, marginTop:3 }}>⏰ {h.opening_hours}</div>}
               </div>
-              <div style={{ fontWeight:800, fontSize:13, color:tc, lineHeight:1.3 }}>{h.name}</div>
-              {h.name_ur && <div style={{ fontSize:12, opacity:0.6, direction:"rtl", marginTop:2 }}>{h.name_ur}</div>}
-              <div style={{ fontSize:11, opacity:0.5, marginTop:4 }}>📍 {h.dist_km} km away{h.address?` • ${h.address}`:""}</div>
-              {h.phone && h.phone!=="N/A" && (
-                <a href={`tel:${h.phone}`} style={{ fontSize:11, color:"#22c55e", display:"inline-flex", alignItems:"center", gap:4, marginTop:5, textDecoration:"none" }}>
-                  <PhoneCall size={11}/> {h.phone}
-                </a>
-              )}
-              {h.opening_hours && <div style={{ fontSize:10, opacity:0.4, marginTop:3 }}>⏰ {h.opening_hours}</div>}
+              <a href={navUrl} target="_blank" rel="noopener noreferrer"
+                style={{ background: isCritical && isNearest ? "#ef4444" : "#3b82f6", color:"white", padding:"9px 12px", borderRadius:10, fontSize:11, fontWeight:700, textDecoration:"none", display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap", flexShrink:0 }}>
+                <Navigation size={12}/> {tx.navigate}
+              </a>
             </div>
-            {/* FIX 2: Navigate link → works on mobile + desktop */}
-            <a href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}`}
-              target="_blank" rel="noopener noreferrer"
-              style={{ background:"#3b82f6", color:"white", padding:"9px 12px", borderRadius:10, fontSize:11, fontWeight:700, textDecoration:"none", display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap", flexShrink:0 }}>
-              <Navigation size={12}/> {tx.navigate}
-            </a>
           </div>
-          {/* Interactive Leaflet map for nearest hospital */}
-          {i===0 && <LeafletMap lat={h.lat} lng={h.lng} name={h.name}/>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1078,10 +1311,16 @@ function HospitalPanel({ hospitals, loading, error, onRefresh, onSearchByLoc, da
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
-function getSection(text, title) {
-  if (!text) return "—";
-  const m = text.match(new RegExp(`${title}[:\\s*]+([\\s\\S]*?)(?=\\n[A-Z][A-Z\\s]{3,}:|$)`,"i"));
-  return m ? m[1].replace(/[*#•\-]/g,"").trim() : "—";
+// Safely parse the AI response as JSON. Returns the parsed object, or null
+// if the text isn't valid JSON (legacy/plain-text response, malformed output).
+function tryParseJSON(text) {
+  if (!text || typeof text !== "string") return null;
+  try {
+    const parsed = JSON.parse(text);
+    return (parsed && typeof parsed === "object") ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 function triageColor(l) {
   const s=(l||"").toLowerCase();
@@ -1089,6 +1328,16 @@ function triageColor(l) {
   if (s.includes("yellow")||s.includes("urgent")) return "#f59e0b";
   if (s.includes("green")||s.includes("minor"))   return "#22c55e";
   return "#6b7280";
+}
+
+// Resolve a history record's timestamp across the shapes it can come in as
+// (Firestore Timestamp, epoch/ISO savedAt, plain timestamp string). Records
+// with no resolvable timestamp sort to the bottom instead of floating to "now".
+function historyTimestamp(r) {
+  if (r?.createdAt?.toDate) return r.createdAt.toDate().getTime();
+  if (r?.savedAt)   { const t = new Date(r.savedAt).getTime();   if (!isNaN(t)) return t; }
+  if (r?.timestamp) { const t = new Date(r.timestamp).getTime(); if (!isNaN(t)) return t; }
+  return 0;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1099,10 +1348,11 @@ export default function NexaMedApp() {
 
   const [dark,      setDark]      = useState(true);
   const [lang,      setLang]      = useState("en");  // "en" | "ur" | "ru"
+  const [isSubmittingSignal, setIsSubmittingSignal] = useState(false); // citizen SOS flag
   const [form,      setForm]      = useState({
     name:"", cnic:"", father_name:"", gender:"Male", age:"", description:"",
     heart_rate:"", blood_pressure:"", oxygen_saturation:"",
-    consciousness_level:"Alert", location:"",
+    consciousness_level:"Alert", location:"", allergies:"",
   });
   const [result,    setResult]    = useState(null);
   const [loading,   setLoading]   = useState(false);
@@ -1116,6 +1366,9 @@ export default function NexaMedApp() {
   const [coords,    setCoords]    = useState(null);
   const [history,   setHistory]   = useState([]);
   const [notif,     setNotif]     = useState(null);
+  const [incidentCoords,     setIncidentCoords]     = useState(null);
+  const [isAnonymous,        setIsAnonymous]        = useState(false);  // true after NADRA 404
+  const [anonBanner,         setAnonBanner]         = useState(null);   // null | "searching" | "found" | "notfound" | "error"
   // Persist last known GPS so switching tabs never loses position
   const lastCoordsRef = useRef(null);
 
@@ -1143,10 +1396,20 @@ export default function NexaMedApp() {
   useEffect(() => { formLocRef.current = form.location; }, [form.location]);
 
   useEffect(() => {
-    // When switching to hospitals tab, use the typed incident location
-    // Pass via ref to avoid stale closure (form.location captured at mount time)
-    if (tab === "hospitals" && !hLoad) loadHospitals(formLocRef.current);
+    // When switching to hospitals tab, always reload with current typed location
+    if (tab === "hospitals") loadHospitals(formLocRef.current);
   }, [tab]); // eslint-disable-line
+
+  // Auto-refresh hospitals when location text changes (debounced 1.5s)
+  const locDebounceRef = useRef(null);
+  useEffect(() => {
+    if (tab !== "hospitals" || !form.location.trim()) return;
+    if (locDebounceRef.current) clearTimeout(locDebounceRef.current);
+    locDebounceRef.current = setTimeout(() => {
+      loadHospitals(form.location);
+    }, 1500);
+    return () => { if (locDebounceRef.current) clearTimeout(locDebounceRef.current); };
+  }, [form.location, tab]); // eslint-disable-line
 
   // ── Geocode via backend proxy (no CORS, no browser blocks) ────────────────
   async function geocodeLocation(locText) {
@@ -1199,57 +1462,80 @@ export default function NexaMedApp() {
   }
 
   // Always pass current form.location explicitly — avoids stale closure
+  // Now geocodes FIRST via backend (Mapbox → Nominatim → Photon),
+  // then sends real coords + loc text so Overpass finds hospitals.
   async function loadHospitals(locOverride) {
-    setHLoad(true); setHErr("");
-    const locText = locOverride !== undefined ? locOverride : form.location;
-    const coords = await getCoordinates(locText);
-    if (!coords) { setHErr("gps"); setHLoad(false); return; }
-    const { lat, lng, source } = coords;
-    setCoords({ lat, lng });
-    // Show user which location was used
-    if (source === "typed" && locText) {
-      console.log("Hospitals: using typed location →", locText, lat, lng);
+    // Avoid duplicate concurrent loads
+    if (hLoad) return;
+    const locText = (locOverride !== undefined ? locOverride : formLocRef.current).trim();
+    setHLoad(true); setHErr(""); setHospitals([]);
+
+    let lat = 0, lng = 0;
+    let resolvedLabel = "";
+
+    if (locText) {
+      // Step 1: Call backend /geocode to resolve name → coords (uses Mapbox first)
+      try {
+        const gRes = await fetch(`${BACKEND}/geocode?q=${encodeURIComponent(locText)}`,
+          { signal: AbortSignal.timeout(12000) });
+        const gData = await gRes.json();
+        if (gData.found && (Math.abs(gData.lat) > 0.1 || Math.abs(gData.lng) > 0.1)) {
+          lat = gData.lat;
+          lng = gData.lng;
+          resolvedLabel = gData.display_name || locText;
+          setCoords({ lat, lng });
+          setIncidentCoords({ lat, lng });
+          lastCoordsRef.current = { lat, lng };
+          console.log(`Geocoded "${locText}" → (${lat.toFixed(4)}, ${lng.toFixed(4)}) [${gData.source}] ${resolvedLabel}`);
+        } else {
+          // Geocode returned 0,0 or not found — still try with loc text
+          console.warn(`Geocode returned no coords for "${locText}", using loc= fallback`);
+        }
+      } catch (e) {
+        console.warn("Geocode fetch failed:", e.message);
+      }
+    } else {
+      // No text — use browser GPS or cached coords
+      const gpsResult = await getCoordinates("");
+      if (!gpsResult) { setHErr("gps"); setHLoad(false); return; }
+      lat = gpsResult.lat; lng = gpsResult.lng;
+      setCoords({ lat, lng });
     }
+
+    // Step 2: Call /hospitals/nearby with resolved coords + original loc text
     try {
-      // Always send loc= text so backend can re-geocode and correct wrong coords
       const locParam = locText ? `&loc=${encodeURIComponent(locText)}` : "";
-      const r = await fetch(`${BACKEND}/hospitals/nearby?lat=${lat}&lng=${lng}&radius_km=10${locParam}`);
-      if (!r.ok) throw new Error(`Backend error ${r.status}. Is uvicorn running?`);
+      const r = await fetch(
+        `${BACKEND}/hospitals/nearby?lat=${lat}&lng=${lng}&radius_km=15${locParam}`,
+        { signal: AbortSignal.timeout(60000) }  // Overpass can be slow
+      );
+      if (!r.ok) throw new Error(`Backend ${r.status}. Is uvicorn running?`);
       const d = await r.json();
-      // Backend may have corrected lat/lng — update our cached coords
-      if (d.lat_used && d.lng_used) {
+      // Backend may correct coords (e.g. if we sent 0,0 and it geocoded)
+      if (d.lat_used && d.lng_used && Math.abs(d.lat_used) > 0.1) {
         setCoords({ lat: d.lat_used, lng: d.lng_used });
+        setIncidentCoords({ lat: d.lat_used, lng: d.lng_used });
         lastCoordsRef.current = { lat: d.lat_used, lng: d.lng_used };
       }
-      setHospitals(d.hospitals || []);
-      if (!(d.hospitals || []).length) setHErr(tx.gpsNoResult);
+      const hospList = d.hospitals || [];
+      setHospitals(hospList);
+      if (!hospList.length) {
+        // Give a helpful message with the resolved location name
+        const usedName = resolvedLabel || locText || "your location";
+        setHErr(d.message || `No hospitals found near "${usedName}". Expanding search area...`);
+      }
     } catch (e) {
       setHErr(e.message || tx.gpsNoResult);
     }
     setHLoad(false);
   }
 
-  // Manual typed-location search — backend does the geocoding, not frontend
+  // searchByTypedLocation: just delegates to loadHospitals with current location text
   async function searchByTypedLocation() {
-    const loc = form.location.trim();
-    if (!loc) { toast("Type an incident location first", "error"); return; }
-    setHLoad(true); setHErr("");
-    try {
-      // Pass lat=0&lng=0 and loc= — backend will geocode correctly with disambiguation
-      const r = await fetch(`${BACKEND}/hospitals/nearby?lat=0&lng=0&radius_km=10&loc=${encodeURIComponent(loc)}`);
-      if (!r.ok) throw new Error(`Backend error ${r.status}. Is uvicorn running?`);
-      const d = await r.json();
-      if (d.lat_used && d.lng_used) {
-        setCoords({ lat: d.lat_used, lng: d.lng_used });
-        lastCoordsRef.current = { lat: d.lat_used, lng: d.lng_used };
-      }
-      setHospitals(d.hospitals || []);
-      if ((d.hospitals || []).length) setTab("hospitals");
-      else setHErr(`No hospitals found near "${loc}". Try adding district name.`);
-    } catch (e) {
-      setHErr(e.message || tx.gpsNoResult);
-    }
-    setHLoad(false);
+    const loc = (formLocRef.current || form.location).trim();
+    if (!loc) { toast("Type an incident location first (e.g. Lahore, Rawalpindi, Chowk Permit)", "error"); return; }
+    await loadHospitals(loc);
+    if (hospitals.length) setTab("hospitals");
   }
 
   async function loadHistory(cnic) { if(cnic) setHistory(await fsHistory(cnic)); }
@@ -1293,6 +1579,81 @@ export default function NexaMedApp() {
     if(d.cnic) loadHistory(d.cnic);
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // NADRA BIOMETRIC LOOKUP  (/nadra/biometric-lookup via <BiometricPanel/>)
+  // 200  → handleBiometricSuccess: map citizen fields into form, preserve allergies
+  // 404  → handleBiometricFailure: John Doe Protocol — anonymous mode + banner
+  // ─────────────────────────────────────────────────────────────────────────
+  function handleBiometricSuccess(data) {
+    const citizen = data.citizen || {};
+    setIsAnonymous(false);
+    setAnonBanner("found");
+    setForm(prev => ({
+      ...prev,
+      name:        citizen.name        || prev.name,
+      cnic:        citizen.cnic        || prev.cnic,
+      father_name: citizen.father_name || citizen.husband_name || prev.father_name,
+      age:         citizen.age != null ? String(citizen.age) : prev.age,
+      gender:      citizen.gender      || prev.gender,
+      allergies:   prev.allergies,   // preserved — biometric lookup never touches allergies
+    }));
+    toast(
+      `✅ Identity verified: ${citizen.name}` +
+      (citizen.blood_group ? ` | Blood Group: ${citizen.blood_group}` : ""),
+      "success"
+    );
+    if (citizen.cnic) loadHistory(citizen.cnic);
+    setTimeout(() => setAnonBanner(null), 4000); // auto-dismiss success banner
+  }
+
+  function handleBiometricFailure() {
+    setIsAnonymous(true);
+    setAnonBanner("notfound"); // mounts the John Doe Protocol banner below
+    setForm(prev => ({
+      ...prev,
+      name:        "Unidentified John Doe",
+      cnic:        "UNKNOWN",
+      father_name: "",
+      age:         "",
+      gender:      "Male",
+      allergies:   "",
+    }));
+  }
+
+  // ── Dispatch finalized PCR to backend + n8n broadcast ───────────────────────────
+  // Non-blocking: errors are logged but never interrupt the triage or PDF flow.
+  async function dispatchPCR(triageResult) {
+    try {
+      const payload = {
+        incident_location:     form.location      || "",
+        chief_complaint_scene: form.description   || "",
+        patient_name:          form.name          || "",
+        gender:                form.gender        || "",
+        father_husband_name:   form.father_name   || "",
+        cnic:                  form.cnic          || "",
+        age:                   String(form.age    || ""),
+        vitals: {
+          hr_bpm:       String(form.heart_rate         || ""),
+          bp:           form.blood_pressure            || "",
+          spo2_percent: String(form.oxygen_saturation  || ""),
+        },
+        allergies:       form.allergies      || "",
+        triage_level:    triageResult?.triage_level    || "",
+        classification:  triageResult?.classification  || "",
+        ai_analysis:     triageResult?.analysis        || "",
+      };
+      const r = await fetch(`${BACKEND}/api/emt/pcr/finalize`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      const d = await r.json();
+      console.log("[PCR-Finalize]", d.pcr_id, d.message);
+    } catch (err) {
+      console.warn("[PCR-Finalize] Non-critical error (Firestore/n8n offline?):", err.message);
+    }
+  }
+
   async function handleSubmit(e) {
     e?.preventDefault();
     if (!form.description.trim()) { toast("Please describe the emergency","error"); return; }
@@ -1315,10 +1676,17 @@ export default function NexaMedApp() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
       setResult(d.analysis);
+      // Fire-and-forget PCR finalization to backend + n8n (non-blocking)
+      dispatchPCR(d).catch(() => {});
+      // Capture backend-resolved incident coords for EmergencyMap
+      if (d.resolved_lat && d.resolved_lng && Math.abs(d.resolved_lat) > 0.1) {
+        setIncidentCoords({ lat: d.resolved_lat, lng: d.resolved_lng });
+        lastCoordsRef.current = { lat: d.resolved_lat, lng: d.resolved_lng };
+      }
       const rid = await fsSave({...form,analysis:d.analysis,triage_level:d.triage_level,classification:d.classification},currentUser?.uid||"");
       toast(`${tx.pcrSaved}${rid?` — ${rid.slice(0,8)}`:""}`);
-      if (form.cnic) await loadHistory(form.cnic);  // reload: newest appears at top
-      if (!hospitals.length) loadHospitals(form.location);
+      if (form.cnic) await loadHistory(form.cnic);
+      loadHospitals(formLocRef.current); // Always reload hospitals to sync map with incident
     } catch (err) {
       const msg = err.message || "Unknown error";
       const isConn = msg.toLowerCase().includes("503") || msg.toLowerCase().includes("connection") || msg.toLowerCase().includes("failed");
@@ -1374,27 +1742,41 @@ export default function NexaMedApp() {
       `Location: ${form.location || "N/A"}`,
       `Vitals  : HR ${form.heart_rate||"N/A"} bpm  BP ${form.blood_pressure||"N/A"}  SpO2 ${form.oxygen_saturation||"N/A"}%  AVPU: ${form.consciousness_level}`,
     ].forEach(line => { checkPage(6); doc.text(line, ML, y); y += 6; });
+
+    // Allergies / Medical Alerts — flagged in an accent color when present
+    // so clinical staff can't miss a real alert on the printed page.
+    const allergiesText = form.allergies?.trim() || "None Reported";
+    const hasAllergies  = Boolean(form.allergies?.trim());
+    checkPage(6);
+    doc.setFont(undefined, hasAllergies ? "bold" : "normal");
+    doc.setTextColor(...(hasAllergies ? [200,30,30] : [20,20,20]));
+    doc.text(`Allergies / Medical Alerts: ${allergiesText}`, ML, y); y += 6;
+    doc.setFont(undefined, "normal");
+    doc.setTextColor(20,20,20);
     y += 3;
 
     if (!result) {
       doc.setFontSize(10); doc.setTextColor(180,0,0);
       doc.text("No AI analysis generated yet.", ML, y);
     } else {
-      const secs = [
-        ["CLASSIFICATION",      [180,0,0]],
-        ["TRIAGE LEVEL",        [180,0,0]],
-        ["RECOMMENDED FACILITY",[80,80,180]],
-        ["INSTRUCTIONS",        [0,100,180]],
-        ["EQUIPMENT ADVICE",    [160,100,0]],
-        ["SOAP NOTE",           [0,140,80]],
-        ["PHYSICAL CONDITION",  [120,0,180]],
-        ["OPTIMIZED ROUTE",     [180,60,0]],
-      ];
-      secs.forEach(([key, color]) => {
-        const text = getSection(result, key);
+      const parsedForPdf = tryParseJSON(result);
+      if (parsedForPdf) {
+        const secs = [
+          ["CLASSIFICATION",       parsedForPdf.classification,       [180,0,0]],
+          ["TRIAGE LEVEL",         parsedForPdf.triage_level,         [180,0,0]],
+          ["RECOMMENDED FACILITY", parsedForPdf.recommended_facility, [80,80,180]],
+          ["INSTRUCTIONS",         parsedForPdf.instructions,         [0,100,180]],
+          ["EQUIPMENT ADVICE",     parsedForPdf.equipment_advice,     [160,100,0]],
+          ["SOAP NOTE",            parsedForPdf.soap_note,           [0,140,80]],
+          ["PHYSICAL CONDITION",   parsedForPdf.physical_condition,   [120,0,180]],
+          ["OPTIMIZED ROUTE",      parsedForPdf.optimized_route,     [180,60,0]],
+        ];
         // Use ASCII ">>" instead of ◈ — jsPDF default font doesn't support Unicode symbols
-        if (text && text !== "—") pdfSection(`>> ${key}`, text, color);
-      });
+        secs.forEach(([key, text, color]) => { if (text) pdfSection(`>> ${key}`, text, color); });
+      } else {
+        // AI didn't return valid JSON — print the raw response as a single section
+        pdfSection(">> AI ANALYSIS (RAW)", result, [90,90,90]);
+      }
     }
 
     const totalPages = doc.getNumberOfPages();
@@ -1412,18 +1794,20 @@ export default function NexaMedApp() {
   const BTN = (col,x={}) => ({ padding:"9px 14px", borderRadius:10, background:col, border:"none", color:"white", cursor:"pointer", display:"flex", alignItems:"center", gap:6, fontWeight:700, fontSize:12, whiteSpace:"nowrap", fontFamily:"inherit", ...x });
   const TAB = a => ({ padding:"8px 13px", borderRadius:8, fontSize:11, fontWeight:a?800:600, cursor:"pointer", border:"none", background:a?"#ef4444":"transparent", color:a?"white":C.text, opacity:a?1:0.55, transition:"all 0.15s", fontFamily:"inherit" });
   const LB  = { fontSize:10, fontWeight:700, opacity:0.45, letterSpacing:"1.5px", display:"block", marginBottom:6, direction:dir };
-  const VC  = { idle:"#3b82f6", speaking:"#f59e0b", listening:"#22c55e", done:"#10b981", error:"#ef4444" };
+  const VC  = { idle:"#3b82f6", speaking:"#f59e0b", listening:"#22c55e", processing:"#8b5cf6", saved:"#10b981", done:"#10b981", error:"#ef4444" };
 
   const voiceLabel = () => {
-    if (voice.status==="speaking")  return tx.speaking;
-    if (voice.status==="listening") return tx.listening;
-    if (voice.status==="done")      return tx.done;
-    if (voice.status==="error")     return tx.voiceError;
+    if (voice.status==="speaking")   return tx.speaking;
+    if (voice.status==="listening")  return tx.listening;
+    if (voice.status==="processing") return tx.processing;
+    if (voice.status==="saved")      return tx.voiceSaved;
+    if (voice.status==="done")       return tx.done;
+    if (voice.status==="error")      return tx.voiceError;
     return tx.voiceQA;
   };
 
   // FIX 4: resolve voice error message through tx
-  const voiceErrMsg = voice.errMsg==="noSR"    ? tx.voiceErr
+  const voiceErrMsg = voice.errMsg==="noSR"       ? tx.voiceErr
                     : voice.errMsg==="micDenied" ? tx.micDenied
                     : voice.errMsg;
 
@@ -1435,6 +1819,7 @@ export default function NexaMedApp() {
       <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes micPulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,0.4)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}}
+        @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
         *{box-sizing:border-box}
         ::-webkit-scrollbar{width:5px}
         ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:3px}
@@ -1483,9 +1868,6 @@ export default function NexaMedApp() {
             {dark?<Sun size={15}/>:<Moon size={15}/>}
           </button>
 
-          {/* ── Google Translate: full language list, no feedback bar ── */}
-          <GTWidget dark={dark} C={C}/>
-
           <button onClick={logout} style={BTN("#374151")} title="Sign out"><LogOut size={14}/></button>
         </div>
       </header>
@@ -1512,44 +1894,85 @@ export default function NexaMedApp() {
               <div style={{ display:"flex", flexDirection:"column", gap:13 }}>
               <form onSubmit={handleSubmit} style={{ display:"flex", flexDirection:"column", gap:13 }}>
 
-                {/* FIX 3+4: voice error in translated language */}
+                {/* FIX 3+4: voice error in translated language.
+                    Deliberately calm/neutral styling, not a red alarm banner —
+                    "aborted" (our own self-triggered abort calls) never reaches
+                    here at all now; what does reach here (mic denied, an
+                    unrecognized SR error) is real and should say so plainly.
+                    The field is left blank for honest manual entry — this is
+                    a clinical intake form, so silently inserting placeholder
+                    symptom/vitals text here would misrepresent real patient
+                    data, not just smooth over a UI hiccup. */}
                 {voice.status==="error" && (
-                  <div style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:10, padding:"10px 14px", fontSize:11, color:"#f87171", direction:dir }}>
-                    ⚠ {voiceErrMsg}
+                  <div style={{ background:C.subtle, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", fontSize:11, color:C.text, opacity:0.75, direction:dir }}>
+                    🎙 {voiceErrMsg}
                   </div>
                 )}
 
                 {/* Voice progress bar */}
-                {voice.isActive && (
-                  <div style={{ background:"rgba(34,197,94,0.06)", border:`1px solid ${voice.status==="speaking"?"rgba(245,158,11,0.4)":"rgba(34,197,94,0.3)"}`, borderRadius:10, padding:"12px 14px", transition:"border-color 0.3s" }}>
+                {voice.isActive && (() => {
+                  const vColor = VC[voice.status] || "#22c55e";
+                  // "error" is the stuck-on-step state (both cloud STT and
+                  // the browser fallback failed) — Skip Question must stay
+                  // available here, otherwise the EMT has no way forward
+                  // short of aborting the whole voice session.
+                  const canSkip = voice.status === "listening" || voice.status === "speaking" || voice.status === "error";
+                  const canSubmit = voice.status === "listening";
+                  const statusLine =
+                    voice.status==="speaking"   ? "🔊 Listen to the question…" :
+                    voice.status==="processing" ? tx.processing :
+                    voice.status==="saved"      ? tx.voiceSaved :
+                    voice.status==="error"      ? "⚠️ Type this field manually or tap Skip Question…" :
+                    "🎤 Speak your answer, then tap Submit…";
+                  return (
+                  <div style={{ background:"rgba(34,197,94,0.06)", border:`1px solid ${vColor}66`, borderRadius:10, padding:"12px 14px", transition:"border-color 0.3s" }}>
                     {/* Status row */}
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                      <div style={{ color:voice.status==="speaking"?"#f59e0b":"#22c55e", fontWeight:800, fontSize:11, direction:"ltr" }}>
+                      <div style={{ color:vColor, fontWeight:800, fontSize:11, direction:"ltr" }}>
                         {voiceLabel()} — {tx.voiceStep} {voice.stepIdx+1} {tx.voiceOf} {voice.totalSteps}
                       </div>
-                      {/* Animated indicator: speaker wave when speaking, mic pulse when listening */}
+                      {/* Animated indicator: speaker wave when speaking, mic pulse when listening/processing */}
                       <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                         {voice.status==="speaking"
-                          ? <Volume2 size={13} style={{ color:"#f59e0b", animation:"none" }}/>
-                          : <div style={{ width:8, height:8, borderRadius:"50%", background:"#22c55e", animation:"micPulse 1.2s ease-in-out infinite" }}/>
+                          ? <Volume2 size={13} style={{ color:vColor, animation:"none" }}/>
+                          : <div style={{ width:8, height:8, borderRadius:"50%", background:vColor, animation:"micPulse 1.2s ease-in-out infinite" }}/>
                         }
                       </div>
                     </div>
-                    {/* Question text — large and readable */}
-                    <div style={{ fontSize:13, fontWeight:700, lineHeight:1.55, padding:"10px 12px", background:"rgba(255,255,255,0.05)", borderRadius:8, marginBottom:8, direction:lang==="ur"?"rtl":"ltr", color:"#e2e8f0" }}>
+                    {/* Question text — large and readable. Uses the theme-aware
+                        C.subtle/C.text pair (not a hardcoded light color) so it
+                        stays readable in both light and dark theme. */}
+                    <div style={{ fontSize:13, fontWeight:700, lineHeight:1.55, padding:"10px 12px", background:C.subtle, borderRadius:8, marginBottom:8, direction:lang==="ur"?"rtl":"ltr", color:C.text }}>
                       {voice.currentPrompt}
                     </div>
-                    <div style={{ fontSize:10, opacity:0.4, marginBottom:8 }}>
-                      {voice.status==="speaking" ? "🔊 Listen to the question…" : "🎤 Speak your answer now…"}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                      <div style={{ fontSize:10, opacity:0.4 }}>
+                        {statusLine}
+                      </div>
+                      <div style={{ display:"flex", gap:6 }}>
+                        {canSubmit && (
+                          <button type="button" onClick={voice.submitAnswer}
+                            style={{ background:"#22c55e", border:"none", color:"white", cursor:"pointer", fontSize:10, fontWeight:800, borderRadius:6, padding:"3px 9px" }}>
+                            ✅ Submit Answer
+                          </button>
+                        )}
+                        {canSkip && (
+                          <button type="button" onClick={voice.skip}
+                            style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.text, opacity:0.6, cursor:"pointer", fontSize:10, fontWeight:700, borderRadius:6, padding:"3px 9px" }}>
+                            Skip Question →
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {/* Progress bar */}
                     <div style={{ display:"flex", gap:5, direction:"ltr" }}>
                       {Array.from({length:voice.totalSteps}).map((_,i)=>(
-                        <div key={i} style={{ height:3, flex:1, borderRadius:2, background:i<voice.stepIdx?"#22c55e":i===voice.stepIdx?voice.status==="speaking"?"#f59e0b":"#22c55e":C.border }}/>
+                        <div key={i} style={{ height:3, flex:1, borderRadius:2, background:i<voice.stepIdx?"#22c55e":i===voice.stepIdx?vColor:C.border }}/>
                       ))}
                     </div>
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* CNIC + Voice buttons */}
                 <div style={{ display:"flex", gap:8 }}>
@@ -1558,6 +1981,93 @@ export default function NexaMedApp() {
                     {voice.isActive?<><Square size={13}/>{tx.stop}</>:<><Mic size={13}/>{tx.voiceQA}</>}
                   </button>
                 </div>
+
+                {/* ── BIOMETRIC LOOKUP ROW + JOHN DOE PROTOCOL BANNER ─────────── */}
+
+                {/* ── Hardware Device Simulator ─────────────────────────────── */}
+                <BiometricPanel
+                  onVerificationSuccess={handleBiometricSuccess}
+                  onVerificationFailure={handleBiometricFailure}
+                />
+
+                {/* John Doe Protocol banner — driven by anonBanner state */}
+                {anonBanner === "notfound" && (
+                  <div
+                    id="john-doe-protocol-banner"
+                    style={{
+                      borderRadius: 10,
+                      border: "1px solid rgba(245,158,11,0.5)",
+                      background: "linear-gradient(135deg,rgba(245,158,11,0.12),rgba(234,88,12,0.08))",
+                      padding: "13px 16px",
+                      display: "flex", flexDirection:"column", gap:8,
+                      animation: "slideDown 0.35s cubic-bezier(.4,0,.2,1)",
+                    }}
+                  >
+                    {/* Title row */}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize:12, fontWeight:900, color:"#fbbf24", letterSpacing:0.4 }}>
+                        ⚠️ Identity not found in NADRA. Switching to Emergency John Doe Protocol.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setAnonBanner(null); setIsAnonymous(false); setForm(p=>({...p,name:""})); }}
+                        style={{ background:"none", border:"none", color:"#fbbf24", cursor:"pointer", fontSize:14, lineHeight:1, padding:"0 2px" }}
+                        title="Dismiss"
+                      >×</button>
+                    </div>
+                    {/* Status pills */}
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      {[
+                        ["🟡", "Anonymous Mode",  "#f59e0b"],
+                        ["✏️", "Fields Editable", "#3b82f6"],
+                        ["📋", "Name Pre-filled",  "#8b5cf6"],
+                        ["🔓", "All Inputs Open",  "#22c55e"],
+                      ].map(([icon,label,col]) => (
+                        <span key={label} style={{
+                          fontSize:9, fontWeight:800, letterSpacing:0.6,
+                          background:`${col}22`, color:col,
+                          border:`1px solid ${col}55`, borderRadius:20,
+                          padding:"3px 8px",
+                        }}>{icon} {label}</span>
+                      ))}
+                    </div>
+                    {/* Instructions */}
+                    <div style={{ fontSize:10, color:"rgba(251,191,36,0.75)", lineHeight:1.6 }}>
+                      Patient name set to <strong style={{ color:"#fbbf24" }}>"Unidentified John Doe"</strong>.
+                      Age, Gender, CNIC and all vitals are fully editable.
+                      Override any field before generating the PCR report.
+                    </div>
+                  </div>
+                )}
+
+                {/* Verified identity banner */}
+                {anonBanner === "found" && (
+                  <div style={{
+                    borderRadius:10, border:"1px solid rgba(34,197,94,0.4)",
+                    background:"rgba(34,197,94,0.08)", padding:"10px 14px",
+                    fontSize:11, fontWeight:700, color:"#4ade80",
+                    display:"flex", alignItems:"center", gap:8,
+                    animation:"slideDown 0.3s ease",
+                  }}>
+                    <CheckCircle size={14}/>
+                    NADRA Identity Verified — patient data auto-filled from registry.
+                  </div>
+                )}
+
+                {/* Error banner */}
+                {anonBanner === "error" && (
+                  <div style={{
+                    borderRadius:10, border:"1px solid rgba(239,68,68,0.4)",
+                    background:"rgba(239,68,68,0.08)", padding:"10px 14px",
+                    fontSize:11, fontWeight:700, color:"#f87171",
+                    display:"flex", alignItems:"center", justifyContent:"space-between",
+                    animation:"slideDown 0.3s ease",
+                  }}>
+                    <span>⚠ NADRA service unavailable. Please fill fields manually.</span>
+                    <button type="button" onClick={()=>setAnonBanner(null)}
+                      style={{ background:"none", border:"none", color:"#f87171", cursor:"pointer", fontSize:14 }}>×</button>
+                  </div>
+                )}
 
                 {/* Location */}
                 <div>
@@ -1578,8 +2088,35 @@ export default function NexaMedApp() {
                 {/* Name + Gender */}
                 <div style={{ display:"grid", gridTemplateColumns:"3fr 2fr", gap:10 }}>
                   <div>
-                    <label style={LB}>{tx.patientName}</label>
-                    <input style={IN} placeholder={tx.namePh} value={form.name} onChange={e=>sf("name")(e.target.value)}/>
+                    <label style={LB}>
+                      {tx.patientName}
+                      {/* Anonymous mode badge — only shows when biometric lookup returned 404 */}
+                      {isAnonymous && (
+                        <span style={{
+                          marginLeft: 8, fontSize: 9, fontWeight: 700,
+                          background: "#f59e0b22", color: "#f59e0b",
+                          border: "1px solid #f59e0b55", borderRadius: 4,
+                          padding: "1px 6px", letterSpacing: 0.5,
+                        }}>
+                          ANONYMOUS
+                        </span>
+                      )}
+                    </label>
+                    {/* Name input — always fully editable (never disabled).
+                        In anonymous mode the value starts as "Unidentified John Doe"
+                        but the operator can freely overwrite it with any partial ID. */}
+                    <input
+                      style={{
+                        ...IN,
+                        ...(isAnonymous ? {
+                          borderColor: "#f59e0b",
+                          background:  "rgba(245,158,11,0.06)",
+                        } : {}),
+                      }}
+                      placeholder={tx.namePh}
+                      value={form.name}
+                      onChange={e => sf("name")(e.target.value)}
+                    />
                   </div>
                   <div>
                     <label style={LB}>{tx.gender}</label>
@@ -1605,8 +2142,24 @@ export default function NexaMedApp() {
                     <input style={IN} placeholder={tx.cnicPh} value={form.cnic} onChange={e=>sf("cnic")(e.target.value)}/>
                   </div>
                   <div>
-                    <label style={LB}>{tx.age}</label>
-                    <input style={IN} placeholder={tx.agePh} type="number" value={form.age} onChange={e=>sf("age")(e.target.value)}/>
+                    <label style={LB}>
+                      {tx.age}
+                      {isAnonymous && (
+                        <span style={{ marginLeft:6, fontSize:8, fontWeight:800,
+                          background:"rgba(245,158,11,0.15)", color:"#f59e0b",
+                          border:"1px solid rgba(245,158,11,0.3)", borderRadius:3,
+                          padding:"1px 5px", verticalAlign:"middle" }}>ESTIMATE</span>
+                      )}
+                    </label>
+                    <input
+                      style={{
+                        ...IN,
+                        ...(isAnonymous ? { borderColor:"#f59e0b", background:"rgba(245,158,11,0.05)" } : {}),
+                      }}
+                      placeholder={isAnonymous ? "Estimated age" : tx.agePh}
+                      type="number" value={form.age}
+                      onChange={e=>sf("age")(e.target.value)}
+                    />
                   </div>
                 </div>
 
@@ -1618,6 +2171,13 @@ export default function NexaMedApp() {
                       <input style={IN} placeholder={l} value={form[f]} onChange={e=>sf(f)(e.target.value)}/>
                     </div>
                   ))}
+                </div>
+
+                {/* Allergies */}
+                <div>
+                  <label style={LB}>ALLERGIC TO</label>
+                  <input style={IN} placeholder="e.g. Penicillin, Aspirin — leave blank if none"
+                    value={form.allergies} onChange={e=>sf("allergies")(e.target.value)}/>
                 </div>
 
                 {/* AVPU */}
@@ -1649,21 +2209,53 @@ export default function NexaMedApp() {
               </div>
             )}
             {tab==="hospitals" && (
-              <div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, direction:"ltr" }}>
-                  <div style={{ fontSize:10, fontWeight:700, opacity:0.4, letterSpacing:"2px" }}>{tx.nearbyTitle}</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                {/* Header row */}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", direction:"ltr" }}>
+                  <div>
+                    <div style={{ fontSize:10, fontWeight:700, opacity:0.4, letterSpacing:"2px" }}>{tx.nearbyTitle}</div>
+                    {form.location && (
+                      <div style={{ fontSize:10, color:"#3b82f6", marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
+                        <MapPin size={9}/> {form.location}
+                      </div>
+                    )}
+                  </div>
                   <div style={{ display:"flex", gap:6 }}>
-                    <button onClick={()=>loadHospitals(form.location)} style={BTN("#3b82f6",{fontSize:11,padding:"7px 11px"})}><RefreshCw size={11}/> {tx.refreshGPS}</button>
+                    <button onClick={()=>loadHospitals(formLocRef.current)} style={BTN("#3b82f6",{fontSize:11,padding:"7px 11px"})}><RefreshCw size={11}/> {tx.refreshGPS}</button>
                     <button onClick={searchByTypedLocation} style={BTN("#6366f1",{fontSize:11,padding:"7px 11px"})} title={tx.searchByLoc}><MapPin size={11}/></button>
                   </div>
                 </div>
-                {coords && <div style={{ fontSize:10, opacity:0.35, marginBottom:10, direction:"ltr" }}>📍 {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>}
+
+                {/* Interactive Emergency Map */}
+                {(incidentCoords || (coords && Math.abs(coords.lat) > 0.1)) && hospitals.length > 0 && (
+                  <div style={{ borderRadius:12, overflow:"hidden", border:`1px solid ${C.border}` }}>
+                    <EmergencyMap
+                      incidentLat={(incidentCoords || coords)?.lat}
+                      incidentLng={(incidentCoords || coords)?.lng}
+                      incidentLabel={form.location || "Incident Location"}
+                      hospitals={hospitals.slice(0, 5)}
+                      triageColor={result ? triageColor(tryParseJSON(result)?.triage_level) : "#ef4444"}
+                    />
+                    <div style={{ padding:"8px 12px", background:dark?"rgba(6,13,24,0.9)":"rgba(240,244,248,0.95)", fontSize:10, opacity:0.6, display:"flex", gap:14, direction:"ltr" }}>
+                      <span>🔴 Incident</span>
+                      <span>🔵 Nearest hospital</span>
+                      <span>⬜ Other hospitals</span>
+                      <span>— Route (OSRM)</span>
+                    </div>
+                  </div>
+                )}
+
+                {coords && Math.abs(coords.lat) > 0.1 && (
+                  <div style={{ fontSize:10, opacity:0.35, direction:"ltr" }}>📍 Resolved: {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}</div>
+                )}
+
                 <HospitalPanel
                   hospitals={hospitals} loading={hLoad}
                   error={hospErrToShow}
-                  onRefresh={()=>loadHospitals(form.location)}
+                  onRefresh={()=>loadHospitals(formLocRef.current)}
                   onSearchByLoc={searchByTypedLocation}
                   darkMode={dark} tx={tx}
+                  triageLevel={tryParseJSON(result)?.triage_level || ""}
                 />
               </div>
             )}
@@ -1676,13 +2268,13 @@ export default function NexaMedApp() {
                 </div>
                 {history.length===0
                   ?<div style={{ opacity:0.35, fontSize:13, textAlign:"center", padding:"36px 0", direction:dir }}>{form.cnic?tx.noHistory:tx.scanFirst}</div>
-                  :history.map((r,i)=>{
-                    const ts2=r.createdAt?.toDate?r.createdAt.toDate():r.savedAt?new Date(r.savedAt):r.timestamp?new Date(r.timestamp):new Date();
+                  :[...history].sort((a,b)=>historyTimestamp(b)-historyTimestamp(a)).map((r,i,arr)=>{
+                    const ts2=new Date(historyTimestamp(r)||Date.now());
                     return (
                       <div key={r.id} style={{ padding:14, borderRadius:12, background:C.subtle, border:`1px solid ${C.border}`, marginBottom:10 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                           <div>
-                            <div style={{ fontWeight:800, fontSize:13 }}>{tx.visit}{history.length-i}</div>
+                            <div style={{ fontWeight:800, fontSize:13 }}>{tx.visit}{arr.length-i}</div>
                             <div style={{ fontSize:11, opacity:0.5, marginTop:2, direction:"ltr" }}>{ts2.toLocaleString("en-PK")}</div>
                           </div>
                           {r.triage_level&&<div style={{ fontSize:9, background:triageColor(r.triage_level), color:"white", padding:"3px 8px", borderRadius:6, fontWeight:800 }}>{r.triage_level}</div>}
@@ -1706,13 +2298,43 @@ export default function NexaMedApp() {
                   {tx.vitalsTitle} — {form.name||"Patient"}
                 </div>
                 <VitalsChart history={history} darkMode={dark}/>
+
+                {/* ── Slidable telemetry timeline — most recent capture first ── */}
+                <div style={{ fontSize:10, fontWeight:700, opacity:0.4, letterSpacing:"2px", margin:"18px 0 10px", direction:dir }}>
+                  TELEMETRY TIMELINE
+                </div>
+                {history.length===0 ? (
+                  <div style={{ opacity:0.35, fontSize:13, textAlign:"center", padding:"24px 0", direction:dir }}>{form.cnic?tx.noHistory:tx.scanFirst}</div>
+                ) : (
+                  <div style={{
+                    display:"flex", overflowX:"auto", scrollSnapType:"x mandatory",
+                    gap:16, padding:10, WebkitOverflowScrolling:"touch",
+                  }}>
+                    {[...history].sort((a,b)=>historyTimestamp(b)-historyTimestamp(a)).map((r,i) => (
+                      <div key={r.id||i} style={{
+                        scrollSnapAlign:"start", flex:"0 0 auto", minWidth:170,
+                        padding:14, borderRadius:12, background:C.subtle, border:`1px solid ${C.border}`,
+                        direction:"ltr",
+                      }}>
+                        <div style={{ fontSize:9, opacity:0.4, letterSpacing:"1px", marginBottom:8 }}>
+                          {new Date(historyTimestamp(r)||Date.now()).toLocaleString("en-PK")}
+                        </div>
+                        <div style={{ display:"flex", flexDirection:"column", gap:6, fontSize:12 }}>
+                          <span>❤ HR: {r.heart_rate || "—"}</span>
+                          <span>⚡ BP: {r.blood_pressure || "—"}</span>
+                          <span>🫁 SpO2: {r.oxygen_saturation ? `${r.oxygen_saturation}%` : "—"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
         </aside>
 
         {/* RIGHT — RESULTS PANEL (always LTR, medical content is English) */}
-        <main style={{ padding:24, overflowY:"auto", direction:"ltr" }}>
+        <main style={{ padding:24, overflowY:"auto", direction:"ltr", display:"flex", flexDirection:"column" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
             <span style={{ fontWeight:900, fontSize:10, letterSpacing:"3px", color:"#ef4444" }}>◈ AI PCR ANALYSIS & DISPATCH</span>
             {result && (
@@ -1720,7 +2342,16 @@ export default function NexaMedApp() {
                 <button style={BTN(speaking?"#ef4444":"#10b981")} onClick={()=>{
                   if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
                   const narrateLang = lang==="ur" ? "ur-PK" : lang==="ru" ? "ur-PK" : "en-US";
-                  const u = new SpeechSynthesisUtterance(result.replace(/[*#•\-]/g,""));
+                  const parsedForSpeech = tryParseJSON(result);
+                  const speechText = parsedForSpeech
+                    ? [
+                        parsedForSpeech.classification && `Condition: ${parsedForSpeech.classification}.`,
+                        parsedForSpeech.triage_level && `Triage level: ${parsedForSpeech.triage_level}.`,
+                        parsedForSpeech.instructions,
+                        parsedForSpeech.soap_note,
+                      ].filter(Boolean).join(" ")
+                    : result.replace(/[*#•\-]/g,"");
+                  const u = new SpeechSynthesisUtterance(speechText);
                   u.lang = narrateLang; u.rate = 0.88; u.pitch = 1; u.volume = 1;
                   // Pick best voice for this language
                   const voices = window.speechSynthesis.getVoices();
@@ -1750,97 +2381,121 @@ export default function NexaMedApp() {
             </div>
           )}
 
-          {result&&!loading&&(
-            <div style={{ display:"flex", flexDirection:"column", gap:15 }}>
-              {/* Triage Banner */}
-              <div style={{ padding:"19px 22px", borderRadius:16, background:`${triageColor(getSection(result,"TRIAGE LEVEL"))}12`, border:`2px solid ${triageColor(getSection(result,"TRIAGE LEVEL"))}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <div style={{ fontSize:10, fontWeight:700, opacity:0.45, letterSpacing:"2px" }}>{tx.condition}</div>
-                  <div style={{ fontSize:19, fontWeight:900, marginTop:4 }}>{getSection(result,"CLASSIFICATION")}</div>
-                </div>
-                <div style={{ textAlign:"right" }}>
-                  <div style={{ fontSize:10, fontWeight:700, opacity:0.45, letterSpacing:"2px" }}>{tx.triage}</div>
-                  <div style={{ fontSize:19, fontWeight:900, color:triageColor(getSection(result,"TRIAGE LEVEL")), marginTop:4 }}>{getSection(result,"TRIAGE LEVEL")}</div>
-                </div>
-              </div>
+          {result&&!loading&&(() => {
+            const parsed = tryParseJSON(result);
 
-              {/* Narration status bar — visible when narrating */}
-              {speaking && (
-                <div style={{ padding:"12px 16px", borderRadius:12, background:"rgba(16,185,129,0.12)", border:"1.5px solid #10b981", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                    <div style={{ width:10, height:10, borderRadius:"50%", background:"#10b981", animation:"micPulse 1.2s ease-in-out infinite" }}/>
-                    <span style={{ fontWeight:800, fontSize:12, color:"#10b981" }}>{tx.narratingMsg}</span>
-                  </div>
-                  <button style={BTN("#ef4444",{fontSize:11,padding:"6px 12px"})} onClick={()=>{ window.speechSynthesis.cancel(); setSpeaking(false); }}>
-                    <Square size={11}/> {tx.stop}
-                  </button>
-                </div>
-              )}
-
-              {/* Optimized Route + Hospital Contact */}
-              {getSection(result,"OPTIMIZED ROUTE")!=="—" && getSection(result,"OPTIMIZED ROUTE") && (
-                <div style={{padding:"14px 17px",borderRadius:13,background:"rgba(239,68,68,0.06)",border:"2px solid rgba(239,68,68,0.4)",borderLeft:"5px solid #ef4444"}}>
-                  <div style={{fontSize:10,fontWeight:900,color:"#ef4444",letterSpacing:"2px",marginBottom:7}}>{tx.optimRoute}</div>
-                  <div style={{fontSize:13,fontWeight:700,lineHeight:1.6,color:"#f87171"}}>🚑 {getSection(result,"OPTIMIZED ROUTE")}</div>
-                  {/* Nearest hospital contact from GPS data */}
-                  {hospitals.length>0&&(
-                    <div style={{marginTop:11,paddingTop:11,borderTop:"1px solid rgba(239,68,68,0.18)"}}>
-                      <div style={{fontSize:9,opacity:0.4,letterSpacing:"1.5px",marginBottom:6}}>NEAREST VERIFIED HOSPITAL</div>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                        <div>
-                          <div style={{fontSize:12,fontWeight:800}}>{hospitals[0].name}</div>
-                          <div style={{fontSize:11,opacity:0.55,marginTop:2}}>📍 {hospitals[0].dist_km} km{hospitals[0].address?` · ${hospitals[0].address}`:""}</div>
-                          {hospitals[0].phone&&hospitals[0].phone!=="N/A"&&(
-                            <a href={`tel:${hospitals[0].phone}`}
-                              style={{fontSize:11,color:"#22c55e",display:"inline-flex",alignItems:"center",gap:4,marginTop:4,textDecoration:"none"}}>
-                              <PhoneCall size={11}/> {hospitals[0].phone}
-                            </a>
-                          )}
-                        </div>
-                        <a href={`https://www.google.com/maps/dir/?api=1&destination=${hospitals[0].lat},${hospitals[0].lng}`}
-                          target="_blank" rel="noopener noreferrer"
-                          style={{background:"#ef4444",color:"white",padding:"9px 14px",borderRadius:9,
-                            fontSize:11,fontWeight:800,textDecoration:"none",
-                            display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
-                          <Navigation size={12}/> Navigate
-                        </a>
-                      </div>
+            // ── Fallback: AI didn't return valid JSON — show ONE clean,
+            // scrollable raw-text card. No secondary/duplicate container,
+            // so there is nothing left to overlap or bleed sideways.
+            if (!parsed) {
+              return (
+                <div style={{ display:"flex", flexDirection:"column", gap:15 }}>
+                  <div style={{
+                    padding:17, borderRadius:13, background:C.subtle, border:`1px solid ${C.border}`,
+                    maxHeight:"64vh", overflowY:"auto",
+                  }}>
+                    <div style={{ fontSize:10, fontWeight:900, color:"#ef4444", letterSpacing:"2px", marginBottom:9 }}>
+                      ⚠ AI RESPONSE (UNSTRUCTURED — RAW OUTPUT)
                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Instructions + Equipment */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:13 }}>
-                {[[tx.fieldInstr,"INSTRUCTIONS","#3b82f6"],[tx.equipMeds,"EQUIPMENT ADVICE","#f59e0b"]].map(([title,key,col])=>(
-                  <div key={key} style={{ padding:17, borderRadius:13, background:C.subtle, border:`1px solid ${C.border}` }}>
-                    <div style={{ fontSize:10, fontWeight:900, color:col, letterSpacing:"2px", marginBottom:9 }}>{title}</div>
-                    <pre style={{ fontFamily:"inherit", fontSize:12, whiteSpace:"pre-wrap", lineHeight:1.8, margin:0 }}>{getSection(result,key)}</pre>
+                    <pre style={{ fontFamily:"inherit", fontSize:12, whiteSpace:"pre-wrap", lineHeight:1.8, margin:0 }}>{result}</pre>
                   </div>
-                ))}
-              </div>
-
-              {/* SOAP Note */}
-              <div style={{ padding:17, borderRadius:13, background:C.subtle, border:"1px solid rgba(34,197,94,0.3)", borderLeft:"5px solid #22c55e" }}>
-                <div style={{ fontSize:10, fontWeight:900, color:"#22c55e", letterSpacing:"2px", marginBottom:9 }}>{tx.soapNote}</div>
-                <pre style={{ fontFamily:"inherit", fontSize:12, whiteSpace:"pre-wrap", lineHeight:1.9, margin:0 }}>{getSection(result,"SOAP NOTE")}</pre>
-              </div>
-
-              {/* Nearby Hospitals inline */}
-              {hospitals.length>0&&(
-                <div style={{ padding:17, borderRadius:13, background:C.subtle, border:`1px solid ${C.border}` }}>
-                  <div style={{ fontSize:10, fontWeight:900, color:"#ef4444", letterSpacing:"2px", marginBottom:12 }}>{tx.nearFacility}</div>
-                  <HospitalPanel hospitals={hospitals.slice(0,2)} loading={false} error="" onRefresh={()=>loadHospitals(form.location)} onSearchByLoc={searchByTypedLocation} darkMode={dark} tx={tx}/>
                 </div>
-              )}
+              );
+            }
 
-              {/* Physical Assessment */}
-              <div style={{ padding:17, borderRadius:13, background:C.subtle, border:`1px solid ${C.border}` }}>
-                <div style={{ fontSize:10, fontWeight:900, color:"#a855f7", letterSpacing:"2px", marginBottom:9 }}>{tx.physAssess}</div>
-                <pre style={{ fontFamily:"inherit", fontSize:12, whiteSpace:"pre-wrap", lineHeight:1.8, margin:0 }}>{getSection(result,"PHYSICAL CONDITION")}</pre>
+            const tColor = triageColor(parsed.triage_level);
+
+            return (
+              <div style={{ display:"flex", flexDirection:"column", gap:15 }}>
+                {/* Triage Banner */}
+                <div style={{ padding:"19px 22px", borderRadius:16, background:`${tColor}12`, border:`2px solid ${tColor}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <div style={{ fontSize:10, fontWeight:700, opacity:0.45, letterSpacing:"2px" }}>{tx.condition}</div>
+                    <div style={{ fontSize:19, fontWeight:900, marginTop:4 }}>{parsed.classification || "—"}</div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontSize:10, fontWeight:700, opacity:0.45, letterSpacing:"2px" }}>{tx.triage}</div>
+                    <div style={{ fontSize:19, fontWeight:900, color:tColor, marginTop:4 }}>{parsed.triage_level || "—"}</div>
+                  </div>
+                </div>
+
+                {/* Narration status bar — visible when narrating */}
+                {speaking && (
+                  <div style={{ padding:"12px 16px", borderRadius:12, background:"rgba(16,185,129,0.12)", border:"1.5px solid #10b981", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ width:10, height:10, borderRadius:"50%", background:"#10b981", animation:"micPulse 1.2s ease-in-out infinite" }}/>
+                      <span style={{ fontWeight:800, fontSize:12, color:"#10b981" }}>{tx.narratingMsg}</span>
+                    </div>
+                    <button style={BTN("#ef4444",{fontSize:11,padding:"6px 12px"})} onClick={()=>{ window.speechSynthesis.cancel(); setSpeaking(false); }}>
+                      <Square size={11}/> {tx.stop}
+                    </button>
+                  </div>
+                )}
+
+                {/* Optimized Route + Nearest Hospital */}
+                {parsed.optimized_route && (
+                  <div style={{padding:"14px 17px",borderRadius:13,background:"rgba(239,68,68,0.06)",border:"2px solid rgba(239,68,68,0.4)",borderLeft:"5px solid #ef4444"}}>
+                    <div style={{fontSize:10,fontWeight:900,color:"#ef4444",letterSpacing:"2px",marginBottom:7}}>{tx.optimRoute}</div>
+                    <div style={{fontSize:13,fontWeight:700,lineHeight:1.6,color:"#f87171"}}>🚑 {parsed.optimized_route}</div>
+                    {hospitals.length>0&&(
+                      <div style={{marginTop:11,paddingTop:11,borderTop:"1px solid rgba(239,68,68,0.18)"}}>
+                        <div style={{fontSize:9,opacity:0.4,letterSpacing:"1.5px",marginBottom:6}}>NEAREST VERIFIED HOSPITAL</div>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                          <div>
+                            <div style={{fontSize:12,fontWeight:800}}>{hospitals[0].name}</div>
+                            <div style={{fontSize:11,opacity:0.55,marginTop:2}}>📍 {hospitals[0].dist_km} km{hospitals[0].address?` · ${hospitals[0].address}`:""}</div>
+                            {hospitals[0].phone&&hospitals[0].phone!=="N/A"&&(
+                              <a href={`tel:${hospitals[0].phone}`}
+                                style={{fontSize:11,color:"#22c55e",display:"inline-flex",alignItems:"center",gap:4,marginTop:4,textDecoration:"none"}}>
+                                <PhoneCall size={11}/> {hospitals[0].phone}
+                              </a>
+                            )}
+                          </div>
+                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${hospitals[0].lat},${hospitals[0].lng}&travelmode=driving`}
+                            target="_blank" rel="noopener noreferrer"
+                            style={{background:"#ef4444",color:"white",padding:"9px 14px",borderRadius:9,
+                              fontSize:11,fontWeight:800,textDecoration:"none",
+                              display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+                            <Navigation size={12}/> Navigate
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Instructions + Equipment */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:13 }}>
+                  {[[tx.fieldInstr,parsed.instructions,"#3b82f6"],[tx.equipMeds,parsed.equipment_advice,"#f59e0b"]].map(([title,text,col])=>(
+                    <div key={title} style={{ padding:17, borderRadius:13, background:C.subtle, border:`1px solid ${C.border}` }}>
+                      <div style={{ fontSize:10, fontWeight:900, color:col, letterSpacing:"2px", marginBottom:9 }}>{title}</div>
+                      <pre style={{ fontFamily:"inherit", fontSize:12, whiteSpace:"pre-wrap", lineHeight:1.8, margin:0 }}>{text || "—"}</pre>
+                    </div>
+                  ))}
+                </div>
+
+                {/* SOAP Note */}
+                <div style={{ padding:17, borderRadius:13, background:C.subtle, border:"1px solid rgba(34,197,94,0.3)", borderLeft:"5px solid #22c55e" }}>
+                  <div style={{ fontSize:10, fontWeight:900, color:"#22c55e", letterSpacing:"2px", marginBottom:9 }}>{tx.soapNote}</div>
+                  <pre style={{ fontFamily:"inherit", fontSize:12, whiteSpace:"pre-wrap", lineHeight:1.9, margin:0 }}>{parsed.soap_note || "—"}</pre>
+                </div>
+
+                {/* Nearby Hospitals inline */}
+                {hospitals.length>0&&(
+                  <div style={{ padding:17, borderRadius:13, background:C.subtle, border:`1px solid ${C.border}` }}>
+                    <div style={{ fontSize:10, fontWeight:900, color:"#ef4444", letterSpacing:"2px", marginBottom:12 }}>{tx.nearFacility}</div>
+                    <HospitalPanel hospitals={hospitals.slice(0,2)} loading={false} error="" onRefresh={()=>loadHospitals(formLocRef.current)} onSearchByLoc={searchByTypedLocation} darkMode={dark} tx={tx} triageLevel={parsed.triage_level}/>
+                  </div>
+                )}
+
+                {/* Physical Assessment */}
+                <div style={{ padding:17, borderRadius:13, background:C.subtle, border:`1px solid ${C.border}` }}>
+                  <div style={{ fontSize:10, fontWeight:900, color:"#a855f7", letterSpacing:"2px", marginBottom:9 }}>{tx.physAssess}</div>
+                  <pre style={{ fontFamily:"inherit", fontSize:12, whiteSpace:"pre-wrap", lineHeight:1.8, margin:0 }}>{parsed.physical_condition || "—"}</pre>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </main>
       </div>
     </div>
