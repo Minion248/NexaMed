@@ -1757,10 +1757,17 @@ async def cnic_scan(req: CNICRequest):
     )
 
     # Current Groq vision models (as of 2025) — llava is deprecated
-    vision_models = [
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "meta-llama/llama-4-maverick-17b-128e-instruct",
-    ]
+
+    # Current Groq vision models
+vision_models = [
+    "llama-3.2-11b-vision-preview",
+    "llama-3.2-90b-vision-preview"
+]
+
+   # vision_models = [
+   #     "meta-llama/llama-4-scout-17b-16e-instruct",
+   #     "meta-llama/llama-4-maverick-17b-128e-instruct",
+   # ]
 
     last_err = "No vision models available"
     for model in vision_models:
