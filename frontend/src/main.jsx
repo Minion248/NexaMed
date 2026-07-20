@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
-import LoginPage from "./pages/LoginPage";
+import LoginPage from "./pages/loginPage";
 import NexaMedApp from "./App";
 
 // Redirect root (no hash fragment) to the static marketing landing page.
