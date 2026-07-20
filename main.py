@@ -16,7 +16,11 @@
 # RUN:      uvicorn main:app --reload --host 0.0.0.0 --port 8000
 # DEBUG:    http://127.0.0.1:8000/debug
 # ─────────────────────────────────────────────────────────────────────────────
+import os
+import torch
 
+# Force PyTorch to use 1 thread to minimize RAM usage
+torch.set_num_threads(1)
 import os, sqlite3, json as _json, re as _re, urllib.parse
 import datetime as _dt
 import random
