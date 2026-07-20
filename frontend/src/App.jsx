@@ -1857,13 +1857,7 @@ export default function NexaMedApp() {
               <span style={{ opacity:0.45 }}>· {userProfile?.role||"EMT"}</span>
             </div>
           )}
-          {/* FIX 4: language switcher — 3 options */}
-          <select value={lang} onChange={e=>setLang(e.target.value)}
-            style={{ background:"#6366f1", color:"white", border:"none", padding:"7px 12px", borderRadius:8, fontWeight:700, fontSize:12, cursor:"pointer" }}>
-            <option value="en">🇺🇸 English</option>
-            <option value="ur">🇵🇰 اردو</option>
-            <option value="ru">Roman Urdu</option>
-          </select>
+
           <button onClick={()=>setDark(!dark)} style={BTN(dark?"#1e3a5f":"#e2e8f0",{color:C.text})}>
             {dark?<Sun size={15}/>:<Moon size={15}/>}
           </button>
