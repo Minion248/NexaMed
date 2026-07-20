@@ -1757,17 +1757,11 @@ async def cnic_scan(req: CNICRequest):
     )
 
     # Current Groq vision models (as of 2025) — llava is deprecated
-
-    # Current Groq vision models
-vision_models = [
-    "llama-3.2-11b-vision-preview",
-    "llama-3.2-90b-vision-preview"
-]
-
-   # vision_models = [
-   #     "meta-llama/llama-4-scout-17b-16e-instruct",
-   #     "meta-llama/llama-4-maverick-17b-128e-instruct",
-   # ]
+# Current Groq vision models
+    vision_models = [
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-90b-vision-preview",
+    ]
 
     last_err = "No vision models available"
     for model in vision_models:
@@ -1792,11 +1786,57 @@ vision_models = [
             last_err = f"Non-JSON from {model}: {str(je)[:80]} | raw: {raw[:120]}"
             continue
 
-    raise HTTPException(422, detail=(
-        f"CNIC scan failed. Last error: {last_err}. "
-        "Check http://127.0.0.1:8000/debug — if groq_vision_api shows ❌, "
-        "Windows Firewall is blocking python.exe → api.groq.com. "
-        "Fix: Windows Security → Firewall → Allow an app → add python.exe (Private+Public)."))
+    raise HTTPException(
+        422,
+        detail=(
+            f"CNIC scan failed. Last error: {last_err}. "
+            "Check http://127.0.0.1:8000/debug — if groq_vision_api shows ❌, "
+            "Windows Firewall is blocking python.exe → api.groq.com. "
+            "Fix: Windows Security → Firewall → Allow an app → add python.exe (Private+Public)."
+        ),
+    )
+
+
+
+
+#     # Current Groq vision models
+#     vision_models = [
+#     "llama-3.2-11b-vision-preview",
+#     "llama-3.2-90b-vision-preview"
+# ]
+
+#    # vision_models = [
+#    #     "meta-llama/llama-4-scout-17b-16e-instruct",
+#    #     "meta-llama/llama-4-maverick-17b-128e-instruct",
+#    # ]
+# last_err = "No vision models available"
+# for model in vision_models:
+#     raw = await groq_vision(model, req.image_base64, req.media_type, prompt, max_tokens=500)
+#         if not raw:
+#             last_err = f"No response from {model} (check /debug for API connectivity)"
+#             continue
+#         try:
+#             clean = _re.sub(r"```[a-z]*", "", raw).replace("```", "").strip()
+#             m = _re.search(r'\{.*\}', clean, _re.DOTALL)
+#             if m:
+#                 clean = m.group(0)
+#             parsed = _json.loads(clean)
+#             # Normalise DOB format and compute age
+#             _raw_dob = (parsed.get("dob") or "").replace(".", "/").replace("-", "/").strip()
+#             if _raw_dob:
+#                 parsed["dob"] = _raw_dob
+#             if _raw_dob and not parsed.get("age"):
+#                 parsed["age"] = _calc_age_from_dob(_raw_dob)
+#             return {"status": "ok", "data": parsed, "method": f"groq:{model.split(chr(47))[-1][:30]}"}
+#         except _json.JSONDecodeError as je:
+#             last_err = f"Non-JSON from {model}: {str(je)[:80]} | raw: {raw[:120]}"
+#             continue
+
+#     raise HTTPException(422, detail=(
+#         f"CNIC scan failed. Last error: {last_err}. "
+#         "Check http://127.0.0.1:8000/debug — if groq_vision_api shows ❌, "
+#         "Windows Firewall is blocking python.exe → api.groq.com. "
+#         "Fix: Windows Security → Firewall → Allow an app → add python.exe (Private+Public)."))
 
 # ── /hospitals/nearby ─────────────────────────────────────────────────────────
 @app.get("/hospitals/nearby")
