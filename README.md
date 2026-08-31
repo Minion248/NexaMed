@@ -52,11 +52,4 @@ Below is the Arechitecture of the NexaMed ecosystem:
 
     npm run dev
 
-
-# Team:
-
-**Sara Akmal**
-
-**Hafsa Rehman**
-
-**Rayyan Ahsan**
+ 
